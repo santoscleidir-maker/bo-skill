@@ -11,7 +11,7 @@ from PIL import Image
 
 APP_TITLE = "Sentinela Bravo — Skill BO"
 
-# Modelos oficiais estáveis da cota gratuita
+# Lista de modelos oficiais disponíveis na cota gratuita
 MODELS_TO_TRY = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
@@ -70,7 +70,7 @@ def main() -> None:
     api_keys = get_all_api_keys()
     
     if not api_keys:
-        st.error("Nenhuma chave configurada nos Secrets.")
+        st.error("Nenhuma chave configurada nos Secrets do Streamlit.")
         st.stop()
 
     st.title("🛡️ Sentinela Bravo")
@@ -90,8 +90,12 @@ def main() -> None:
 
         evidencias_pil = []
         for arq in arquivos or []:
-            _, pil_img = compress_image(arq)
-            evidencias_pil.append(pil_img)
+            try:
+                _, pil_img = compress_image(arq)
+                evidencias_pil.append(pil_img)
+            except Exception:
+                st.error(f"Erro ao processar imagem: {arq.name}")
+                st.stop()
 
         payload = {
             "tipo": tipo_ocorrencia,
@@ -105,8 +109,8 @@ def main() -> None:
         parsed_response = None
 
         with st.spinner("Processando dados com inteligência artificial..."):
-            # Rotação inteligente entre chaves e modelos
-            for i, k in enumerate(api_keys):
+            # Loop estruturado sem erros de indentação
+            for k in api_keys:
                 if parsed_response:
                     break
                 try:
@@ -125,7 +129,7 @@ def main() -> None:
                     continue
 
         if not parsed_response:
-            st.error("Todas as chaves atingiram o limite simultâneo da cota gratuita. Aguarde 1 minuto para reenviar.")
+            st.error("Todas as chaves atingiram o limite temporário da cota gratuita. Aguarde 60 segundos e tente novamente.")
             st.stop()
 
         st.success("Relatório processado com sucesso!")
