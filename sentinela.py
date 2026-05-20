@@ -38,7 +38,7 @@ else:
     # Bloco 1: Entrada do Usuário
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">✍️ Relato da Ocorrência</div>', unsafe_allow_html=True)
-    st.markdown('<p class="hint-text"><b>Linguagem Simpática:</b> Pode ditar ou escrever do seu jeito! O sistema vai conferir se está tudo certinho antes de fechar o relatório.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="hint-tex8t"><b>Linguagem Simpática:</b> Pode ditar ou escrever do seu jeito! O sistema vai conferir se está tudo certinho antes de fechar o relatório.</p>', unsafe_allow_html=True)
     
     relato_bruto = st.text_area(
         "O que aconteceu no turno?",
@@ -101,7 +101,7 @@ else:
                 # Se aprovado, o Gemini entra em ação sem limites para construir o documento perfeito
                 with st.spinner("Tudo validado! O Gemini está gerando o relatório formal no padrão Stellantis..."):
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel(7
                         
                         prompt_execucao_gemini = (
                             "Você é a inteligência especializada em segurança patrimonial da Stellantis. "
@@ -128,7 +128,7 @@ else:
                         if imagem_carregada is not None:
                             conteudo_para_enviar.append(imagem_carregada)
 
-                        response = model.generate_content(conteudo_para_enviar)
+                        response = gemini_client.models.generate_content(model="gemini-2.0-flash", contents=conteudo_para_env
 
                         st.success("✨ Boletim Auditado e Emitido com Sucesso!")
                         st.markdown("### 📋 Documento Oficial Gerado:")
