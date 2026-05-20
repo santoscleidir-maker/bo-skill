@@ -11,7 +11,6 @@ from PIL import Image
 
 APP_TITLE = "Sentinela Bravo — Skill BO"
 
-# Lista de modelos oficiais disponíveis na cota gratuita
 MODELS_TO_TRY = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
@@ -34,8 +33,16 @@ def init_page() -> None:
 
 def get_all_api_keys() -> List[str]:
     keys = []
+    # Tratamento seguro usando .get() para evitar o erro KeyError caso o painel de Secrets esteja vazio
     for secret_name in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
-        key = st.secrets.get(secret_name) or os.getenv(secret_name)
+        try:
+            key = st.secrets.get(secret_name)
+        except Exception:
+            key = None
+            
+        if not key:
+            key = os.getenv(secret_name)
+            
         if key:
             cleaned = key.strip().replace('"', '').replace("'", "")
             if cleaned and cleaned not in keys:
@@ -69,11 +76,14 @@ def main() -> None:
     init_page()
     api_keys = get_all_api_keys()
     
+    st.title("🛡️ Sentinela Bravo")
+    
+    # Se não houver chaves configuradas, exibe um aviso amigável na tela do app em vez de quebrar o sistema
     if not api_keys:
-        st.error("Nenhuma chave configurada nos Secrets do Streamlit.")
+        st.warning("⚠️ Atenção: Nenhuma chave de API encontrada nos Secrets do Streamlit.")
+        st.info("Por favor, acesse as configurações do aplicativo (Settings > Secrets) e adicione a sua 'GEMINI_API_KEY' para ativar o sistema.")
         st.stop()
 
-    st.title("🛡️ Sentinela Bravo")
     st.caption("Skill BO operacional com redundância de chaves ativa.")
 
     with st.form("bo_form"):
@@ -108,28 +118,26 @@ def main() -> None:
         parts = [prompt] + evidencias_pil
         parsed_response = None
 
-        with st.spinner("Processando dados com inteligência artificial..."):
-            # Loop estruturado sem erros de indentação
-            for k in api_keys:
-                if parsed_response:
-                    break
-                try:
-                    genai.configure(api_key=k)
-                    for model_name in MODELS_TO_TRY:
-                        try:
-                            model = genai.GenerativeModel(model_name)
-                            res = model.generate_content(parts)
-                            if res and hasattr(res, "text"):
-                                parsed_response = parse_json_response(res.text)
-                                if parsed_response:
-                                    break
-                        except Exception:
-                            continue
-                except Exception:
-                    continue
+        for k in api_keys:
+            if parsed_response:
+                break
+            try:
+                genai.configure(api_key=k)
+                for model_name in MODELS_TO_TRY:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        res = model.generate_content(parts)
+                        if res and hasattr(res, "text"):
+                            parsed_response = parse_json_response(res.text)
+                            if parsed_response:
+                                break
+                    except Exception:
+                        continue
+            except Exception:
+                continue
 
         if not parsed_response:
-            st.error("Todas as chaves atingiram o limite temporário da cota gratuita. Aguarde 60 segundos e tente novamente.")
+            st.error("Todas as chaves atingiram o limite da cota gratuita. Aguarde 60 segundos.")
             st.stop()
 
         st.success("Relatório processado com sucesso!")
