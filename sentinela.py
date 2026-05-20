@@ -11,6 +11,7 @@ from PIL import Image
 
 APP_TITLE = "Sentinela Bravo — Skill BO"
 
+# CONFIGURAÇÃO GLOBAL - Modelos para o sistema de rotação de cotas
 MODELS_TO_TRY = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
@@ -33,7 +34,6 @@ def init_page() -> None:
 
 def get_all_api_keys() -> List[str]:
     keys = []
-    # Tratamento seguro usando .get() para evitar o erro KeyError caso o painel de Secrets esteja vazio
     for secret_name in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
         try:
             key = st.secrets.get(secret_name)
@@ -78,7 +78,6 @@ def main() -> None:
     
     st.title("🛡️ Sentinela Bravo")
     
-    # Se não houver chaves configuradas, exibe um aviso amigável na tela do app em vez de quebrar o sistema
     if not api_keys:
         st.warning("⚠️ Atenção: Nenhuma chave de API encontrada nos Secrets do Streamlit.")
         st.info("Por favor, acesse as configurações do aplicativo (Settings > Secrets) e adicione a sua 'GEMINI_API_KEY' para ativar o sistema.")
@@ -118,6 +117,7 @@ def main() -> None:
         parts = [prompt] + evidencias_pil
         parsed_response = None
 
+        # Processamento seguro com chaves e a lista de modelos global
         for k in api_keys:
             if parsed_response:
                 break
