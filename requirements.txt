@@ -1,4 +1,2 @@
-streamlit
-google-genai
-Pillow
-anthropic
+google-generativeai
+pillow
