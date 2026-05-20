@@ -1,9 +1,9 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import anthropic
 from PIL import Image
 import io
-
 # Configuração da página para telemóvel
 st.set_page_config(page_title="Sentinela - BO Skill", page_icon="🛡️", layout="centered")
 
