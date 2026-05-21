@@ -3,20 +3,20 @@ import google.generativeai as genai
 from PIL import Image
 import io
 import datetime
+import time
 
-# ─── Configuração de Página ───────────────────────────────────────────────────
+# ─── Configuração de Página e Layout ──────────────────────────────────────────
 st.set_page_config(
-    page_title="Sentinela Bravo — Auditor de BO",
+    page_title="Sentinela Bravo — Auditor & Revisor",
     page_icon="🛡️",
     layout="centered"
 )
 
-# Estilização CSS para máxima legibilidade no celular
 st.markdown("""
 <style>
     .block-container { padding-top: 1rem; }
-    h1 { font-size: 2rem !important; font-weight: 800 !important; color: #1e3d59; }
-    .stTextArea textarea { font-family: 'Courier New', monospace; font-size: 0.9rem; }
+    h1 { font-size: 2.1rem !important; font-weight: 800 !important; color: #1e3d59; }
+    .stTextArea textarea { font-family: 'Courier New', monospace; font-size: 0.95rem; }
     .stButton > button[kind="primary"] {
         background-color: #1e3d59;
         color: white;
@@ -32,65 +32,64 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("# 🛡️ Sentinela Bravo")
-st.caption("Módulo Boletinista Auditor — Stellantis Betim")
+st.caption("Arquitetura Híbrida: Pré-Auditoria em Python & Revisão por Inteligência Artificial")
 st.markdown("---")
 
-# Inicialização de variáveis na sessão para persistência absoluta
-if "documento_completo" not in st.session_state:
-    st.session_state.documento_completo = None
+# Inicialização das variáveis de estado para persistência estável no mobile
+if "documento_revisado" not in st.session_state:
+    st.session_state.documento_revisado = None
 if "nome_arquivo" not in st.session_state:
     st.session_state.nome_arquivo = ""
 
-# ─── Configuração da Conexão com API ──────────────────────────────────────────
+# ─── Autenticação da Chave API ────────────────────────────────────────────────
 api_key = st.secrets.get("GOOGLE_API_KEY") or st.secrets.get("GEMINI_API_KEY")
-
 if api_key:
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Chave de API não configurada nos Secrets do Streamlit.")
+    st.error("⚠️ Chave de API não localizada nas configurações internas do Streamlit.")
     st.stop()
 
-# ─── Painel de Entrada de Dados ───────────────────────────────────────────────
-st.markdown("### 📝 Entrada de Dados Operacionais")
+# ─── Entrada de Dados Operacionais ────────────────────────────────────────────
+st.markdown("### 📝 Informações de Campo")
 
 col1, col2 = st.columns(2)
 with col1:
-    data_fato = st.date_input("Data do Fato", value=datetime.date.today())
+    data_fato = st.date_input("Data da Ocorrência", value=datetime.date.today())
 with col2:
     hora_fato = st.selectbox(
-        "Hora do Fato",
+        "Horário do Fato (Formato 24h)",
         options=[f"{h:02d}:{m:02d}" for h in range(0, 24) for m in range(0, 60, 5)],
         index=144
     )
 
 local_detalhado = st.text_input(
-    "Local Exato do Fato",
+    "Local Exato (Planta Betim)",
     placeholder="Ex: Portaria 03 baia 02, Galpão 89 coluna 32AC..."
 )
 
-relato_whatsapp = st.text_area(
-    "Insira o Relato Bruto (WhatsApp / Campo)",
-    placeholder="Cole aqui as mensagens informais recebidas das equipes de campo...",
+relato_bruto = st.text_area(
+    "Relato Bruto do Plantão (Copiado do WhatsApp / Anotações)",
+    placeholder="Insira as mensagens informais trazidas pelas equipes de campo para triagem...",
     height=180
 )
 
-# ─── Módulo Compressor de Imagem Nativo ───────────────────────────────────────
-st.markdown("### 📷 Evidências Fotográficas")
+# ─── Otimizador e Compressor de Imagens de Campo (Nativo em Python) ───────────
+st.markdown("### 📷 Evidências Visuais")
 fotos_carregadas = st.file_uploader(
-    "Arraste ou selecione as fotos",
+    "Anexe as fotos da ocorrência",
     type=["jpg", "jpeg", "png", "webp"],
     accept_multiple_files=True,
     label_visibility="collapsed"
 )
 
-imagens_processadas_api = []
-
+imagens_processadas = []
 if fotos_carregadas:
     for foto in fotos_carregadas:
         try:
             foto.seek(0)
             img = Image.open(io.BytesIO(foto.read()))
-            img.thumbnail((1024, 1024)) # Redimensionamento leve ideal para redes móveis
+            # Redimensionamento rápido em Python para aliviar o tráfego móvel
+            img.thumbnail((1024, 1024))
             
             buffer = io.BytesIO()
             if img.mode in ("RGBA", "P"):
@@ -98,108 +97,153 @@ if fotos_carregadas:
                 
             img.save(buffer, format="JPEG", quality=70, optimize=True)
             buffer.seek(0)
-            imagens_processadas_api.append(Image.open(buffer))
+            imagens_processadas.append(Image.open(buffer))
         except Exception:
-            pass # Ignora imagens corrompidas para não travar o fluxo
+            pass
             
-    if imagens_processadas_api:
-        st.success(f"✅ {len(imagens_processadas_api)} imagem(ns) otimizada(s) para o celular!")
+    if imagens_processadas:
+        st.success(f"✅ {len(imagens_processadas)} evidência(s) comprimida(s) localmente pelo Python!")
 
 st.markdown("---")
 
-# ─── Execução do Processamento ────────────────────────────────────────────────
-disparar_analise = st.button("🛡️ Auditar e Confeccionar Boletim", use_container_width=True, type="primary")
+# ─── MOTOR DE PRÉ-AUDITORIA INTERNA (PYTHON PURO — SEM CONSUMO DE COTA) ───────
+def executar_auditoria_local(texto):
+    """
+    Varre o texto de forma exata e instantânea procurando inconsistências críticas.
+    Garante o bloqueio local caso as regras básicas operacionais sejam infringidas.
+    """
+    pendencias = []
+    texto_alvo = texto.lower()
+    
+    # 1. Auditoria de dados de identificação para funcionários internos
+    if "re" not in texto_alvo and "matrícula" not in texto_alvo and "matricula" not in texto_alvo:
+        # Se for terceiro pode não ter RE, mas o sistema alerta a necessidade de validação
+        if "motorista" not in texto_alvo and "terceiro" not in texto_alvo:
+            pendencias.append("Ausência de Registro Funcional (RE / Matrícula) do envolvido.")
+            
+    # 2. Auditoria de meios de contato diretos
+    if "tel" not in texto_alvo and "fone" not in texto_alvo and "celular" not in texto_alvo:
+        pendencias.append("Ausência de número de telefone ou canal de contato telefônico.")
+        
+    # 3. Auditoria de Lideranças de Turno
+    if "lider" not in texto_alvo and "líder" not in texto_alvo and "supervisor" not in texto_alvo and "gerente" not in texto_alvo and "inspetor" not in texto_alvo:
+        pendencias.append("Ausência de menção à liderança imediata ciente do registro.")
+        
+    # 4. Alerta Técnico de Termos Banidos (Ex: Termo genérico 'danificado')
+    if "danificado" in texto_alvo:
+        pendencias.append("Uso do termo genérico 'danificado'. Substitua por termos específicos (amassado, riscado, quebrado, empenado).")
+        
+    return pendencias
 
-if disparar_analise:
-    if not relato_whatsapp.strip():
-        st.warning("⚠️ Forneça o relato bruto antes de gerar.")
+# ─── Acionamento e Processamento Combinado ────────────────────────────────────
+if st.button("🛡️ Executar Auditoria e Revisão", use_container_width=True, type="primary"):
+    if not relato_bruto.strip():
+        st.warning("⚠️ O campo de relato bruto não pode estar vazio para a análise.")
         st.stop()
         
-    with st.spinner("🔄 Processando dados... Por favor, mantenha a página aberta."):
-        try:
-            modelo_boletinista = genai.GenerativeModel("gemini-2.0-flash")
-            
-            prompt = f"""Você é o Boletinista Auditor da Segurança Patrimonial da Stellantis Betim, MG.
-Analise as informações fornecidas e gere um documento unificado contendo a AUDITORIA DE OMISSÕES e o BOLETIM DE OCORRÊNCIA FORMATADO.
+    # Passo 1: O Python faz o trabalho pesado de validação física das regras
+    lista_pendencias = executar_auditoria_local(relato_bruto)
+    
+    if lista_pendencias:
+        # Bloqueio imediato na tela: Cota da IA totalmente preservada
+        st.error("⛔ **REGISTRO BLOQUEADO PELA PRÉ-AUDITORIA LOCAL**")
+        st.markdown("O texto enviado não cumpre os requisitos mínimos estabelecidos. Corrija os desvios abaixo:")
+        for item in lista_pendencias:
+            st.markdown(f"- ❌ {item}")
+        st.info("💡 *Dica do Sistema: A correção prévia impede o envio de dados corrompidos para a IA e economiza a cota do plantão.*")
+    else:
+        # Passo 2: Se o texto passou pelo Python, a versão atual do Gemini atua puramente como revisor técnico técnico
+        with st.spinner("🔄 Pré-auditoria aprovada! Acionando o Revisor de IA para formatação do documento final..."):
+            try:
+                # Utilizando a versão mais atualizada e otimizada (Gemini 2.0 Flash)
+                modelo_revisor = genai.GenerativeModel("gemini-2.0-flash")
+                
+                prompt_revisao = f"""Você é o Revisor Ortográfico e Boletinista Técnico da Gestão de Segurança Patrimonial na Stellantis Betim, MG.
+Sua única função agora é receber as informações limpas e estruturá-las no padrão culto de Relatório Técnico, eliminando gírias e vícios de linguagem do WhatsApp, gerando uma formatação estável e compatível com Bloco de Notas ou Word.
 
-DATA DO REGISTRO: {data_fato.strftime('%d/%m/%Y')}
-HORA DO FATO: {hora_fato}
-LOCAL INFORMADO: {local_detalhado if local_detalhado else 'Não especificado'}
-RELATO ENVIADO:
+DADOS LOGÍSTICOS CONSOLIDADOS:
+- Data do Fato: {data_fato.strftime('%d/%m/%Y')}
+- Hora do Fato: {hora_fato}
+- Local Definido: {local_detalhado if local_detalhado else 'Informado no corpo do texto'}
+
+TEXTO DE ENTRADA DO PLANTÃO:
 \"\"\"
-{relato_whatsapp}
+{relato_bruto}
 \"\"\"
 
-DIRETRIZES DE AUDITORIA:
-1. Identifique omissões de dados de Funcionários (Nome, RE, Telefone, Superior válido - lembre que Team Leader não responde por BO).
-2. Identifique omissões de dados de Terceiros/Motoristas/Atos Dolosos (RG/CNH, Empresa, Endereço Residencial, Telefone, Filiação).
-3. Classifique a ocorrência em uma das naturezas oficiais (Ex: Excesso de Carga Horária, Estacionamento Irregular, Danos de Trânsito Interno - usando Choque/Colisão/Abalroamento conforme a regra técnica. Proibido usar 'danificado', use amassado, riscado, quebrado, etc.).
+INSTRUÇÕES DE ESCRITA FORMAL:
+1. Identifique a natureza da ocorrência segundo os padrões operacionais da planta (ex: Excesso de Carga Horária - Overtime, Estacionamento Irregular, Danos de Trânsito Interno diferenciando Colisão/Choque/Abalroamento).
+2. Escreva em formato técnico puramente factual, neutro, sem termos subjetivos ou adjetivos desnecessários.
+3. Preserve com total exatidão números de documentos, RE, placas veiculares, numerações de chassis, racks ou ordens de carga.
 
-DIRETRIZES DE FORMATAÇÃO:
-Gere um texto limpo, em linguagem culta, formal e simples. O layout deve ser perfeitamente alinhado para cópia no Bloco de Notas ou Word.
-
-Estruture sua resposta estritamente neste formato de texto abaixo:
-
-RELATÓRIO DE AUDITORIA OPERACIONAL
-----------------------------------------------------------------------
-[Liste aqui os dados que faltam para o encerramento do turno ou se há pendências de terceiros/líderes. Se estiver tudo OK, escreva 'NENHUMA OMISSÃO DETECTADA'].
-Justificativa da Natureza: [Explique o motivo técnico da classificação].
+Gere a saída rigorosamente estruturada abaixo para cópia imediata:
 
 BOLETIM DE OCORRÊNCIA INTERNO — STELLANTIS BETIM
 ----------------------------------------------------------------------
-1. DADOS LOGÍSTICOS
+1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
 - Data do Fato: {data_fato.strftime('%d/%m/%Y')}
 - Hora do Fato: {hora_fato}
-- Local Exato: {local_detalhado if local_detalhado else 'Informado no histórico'}
-- Natureza da Ocorrência: [Classificação Técnica Exata]
+- Local Exato: {local_detalhado if local_detalhado else 'Declarado no histórico'}
+- Natureza da Ocorrência: [Classificação Técnica da Natureza]
 
 2. QUALIFICAÇÃO DOS ENVOLVIDOS
-[Separe por tópicos Funcionários e Terceiros com seus respectivos dados].
+[Identificação clara de Funcionários ou Terceiros, contendo nomes, registros, contatos e empresas].
 
-3. HISTÓRICO DOS FATOS (CRONOLOGIA)
-[Texto claro, formal e impessoal narrando o início, meio e fim, incluindo as alegações de todos os envolvidos].
+3. HISTÓRICO DOS FATOS (NARRATIVA CRONOLÓGICA)
+[Texto formal, culto e direto contendo a cronologia exata: início, meio e fim do evento, incluindo as alegações das partes envolvidas].
 
-4. PROVIDÊNCIAS ADOTADAS
-[Encaminhamentos, isolamentos, acionamentos de liderança ou recusas registradas].
+4. PROVIDÊNCIAS OPERACIONAIS ADOTADAS
+[Acionamento de equipes médicas, isolamentos de áreas, colocação de travas, acionamento de guinchos ou lideranças informadas].
 
-5. REGISTRO
+5. ENCERRAMENTO DE REGISTRO
 - Vigilante Relator: ___________________________ RE: ___________
 - Inspetor de Plantão Ciente: ___________________________
-- Data/Hora da Emissão: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+- Horário de Emissão do Relatório: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
 ----------------------------------------------------------------------
 """
-
-            conteudo_requisicao = [prompt]
-            if imagens_processadas_api:
-                conteudo_requisicao.append("\n[Análise de Evidências Visuais]: Extraia dados das fotos anexadas abaixo:")
-                conteudo_requisicao.extend(imagens_processadas_api)
-
-            resposta = modelo_boletinista.generate_content(conteudo_requisicao)
-            
-            if resposta and hasattr(resposta, "text") and resposta.text:
-                st.session_state.documento_completo = resposta.text
-                st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
-            else:
-                st.error("❌ A central retornou um documento vazio. Tente novamente em um navegador comum.")
+                conteudo_requisicao = [prompt_revisao]
+                if imagens_processadas:
+                    conteudo_requisicao.append("\n[Análise Visual de Evidências]: Corrobore os dados e avarias textuais cruzando com as imagens em anexo:")
+                    conteudo_requisicao.extend(imagens_processadas)
                 
-        except Exception as e:
-            st.error(f"❌ Erro de processamento: {str(e)}")
+                # Sistema adaptativo de tentativas contra erro 429 (Resource Exhausted)
+                resposta_final = None
+                for tentativa in range(3):
+                    try:
+                        resposta_final = modelo_revisor.generate_content(conteudo_requisicao)
+                        if resposta_final and hasattr(resposta_final, "text") and resposta_final.text:
+                            break
+                    except Exception as e:
+                        if "429" in str(e) and tentativa < 2:
+                            time.sleep(10)
+                        else:
+                            raise e
+                
+                if resposta_final and resposta_final.text:
+                    st.session_state.documento_revisado = resposta_final.text
+                    st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
+                else:
+                    st.error("❌ Falha de comunicação: O motor de inteligência retornou uma resposta em branco.")
+                    
+            except Exception as falha_ia:
+                st.error(f"❌ Erro no motor de IA: {str(falha_ia)}. Tente novamente em alguns segundos.")
 
-# ─── Área de Exibição dos Resultados (Persistente) ────────────────────────────
-if st.session_state.documento_completo:
-    st.success("✅ Documento confeccionado com sucesso!")
-    st.markdown("### 📋 Documento Pronto para Cópia / Envio")
+# ─── Área de Exibição do Resultado Estável ────────────────────────────────────
+if st.session_state.documento_revisado:
+    st.success("✅ Documento revisado e estruturado com sucesso!")
+    st.markdown("### 📋 Texto Formatado Pronto para Uso")
     
+    # Campo ideal para cópia sem deformações ortográficas no Bloco de Notas ou Word
     st.text_area(
         label="",
-        value=st.session_state.documento_completo,
-        height=500,
-        key="visualizador_final"
+        value=st.session_state.documento_revisado,
+        height=520,
+        key="visualizador_final_limpo"
     )
     
     st.download_button(
         label="⬇️ Baixar Arquivo para Bloco de Notas / Word (.txt)",
-        data=st.session_state.documento_completo.encode("utf-8"),
+        data=st.session_state.documento_revisado.encode("utf-8"),
         file_name=st.session_state.nome_arquivo,
         mime="text/plain",
         use_container_width=True
