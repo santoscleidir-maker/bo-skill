@@ -3,7 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 import io
 import datetime
-import time  # Biblioteca importada corretamente para evitar o NameError
+import time
 
 # ─── Configuração de Página e Layout ──────────────────────────────────────────
 st.set_page_config(
@@ -33,7 +33,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("# 🛡️ Sentinela Bravo")
-st.caption("Arquitetura Híbrida: Pré-Auditoria em Python & Revisão por Inteligência Artificial")
+st.caption("Módulo Híbrido Corrigido — Stellantis Betim")
 st.markdown("---")
 
 # Inicialização das variáveis de estado para persistência estável no mobile
@@ -149,9 +149,10 @@ if st.button("🛡️ Executar Auditoria e Revisão", use_container_width=True, 
             st.markdown(f"- ❌ {item}")
         st.info("💡 *Dica do Sistema: A correção prévia impede o envio de dados incompletos e economiza a cota da IA.*")
     else:
-        # Passo 2: Se passou, a versão mais recente do Gemini atua como revisor de texto técnico
+        # Passo 2: Chamada do Modelo Corrigida sem argumentos inválidos
         with st.spinner("🔄 Pré-auditoria aprovada! Acionando o Revisor de IA para formatação do documento final..."):
             try:
+                # Chamada limpa e em conformidade estrita com a nova versão da biblioteca
                 modelo_revisor = genai.GenerativeModel("gemini-2.0-flash")
                 
                 prompt_revisao = f"""Você é o Revisor Ortográfico e Boletinista Técnico da Gestão de Segurança Patrimonial na Stellantis Betim, MG.
@@ -180,7 +181,7 @@ BOLETIM DE OCORRÊNCIA INTERNO — STELLANTIS BETIM
 - Data do Fato: {data_fato.strftime('%d/%m/%Y')}
 - Hora do Fato: {hora_fato}
 - Local Exato: {local_detalhado if local_detalhado else 'Declarado no histórico'}
-- Natureza da Ocorrência: [Classificação Técnica da Natureza]
+- Natureza da Ocorrência: [Classificação Técnico da Natureza]
 
 2. QUALIFICAÇÃO DOS ENVOLVIDOS
 [Identificação clara de Funcionários ou Terceiros, contendo nomes, registros, contatos e empresas].
@@ -202,7 +203,7 @@ BOLETIM DE OCORRÊNCIA INTERNO — STELLANTIS BETIM
                     conteudo_requisicao.append("\n[Análise Visual de Evidências]: Corrobore os dados e avarias textuais cruzando com as imagens em anexo:")
                     conteudo_requisicao.extend(imagens_processadas)
                 
-                # Sistema de tentativas contra erro 429 (Resource Exhausted) usando a biblioteca importada
+                # Sistema de segurança de tentativas contra instabilidade de rede ou limite 429
                 resposta_final = None
                 for tentativa in range(3):
                     try:
@@ -211,12 +212,12 @@ BOLETIM DE OCORRÊNCIA INTERNO — STELLANTIS BETIM
                             break
                     except Exception as e:
                         if "429" in str(e) and tentativa < 2:
-                            time.sleep(10)  # Agora funciona perfeitamente sem dar NameError
+                            time.sleep(10)
                         else:
                             raise e
                 
-                if respuesta_final and resposta_final.text:
-                    st.session_state.documento_revisado = respuesta_final.text
+                if resposta_final and resposta_final.text:
+                    st.session_state.documento_revisado = resposta_final.text
                     st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
                 else:
                     st.error("❌ Falha de comunicação: O motor de inteligência retornou uma resposta em branco.")
@@ -237,7 +238,7 @@ if st.session_state.documento_revisado:
     )
     
     st.download_button(
-        label="⬇ " "Baixar Arquivo para Bloco de Notas / Word (.txt)",
+        label="⬇️ Baixar Arquivo para Bloco de Notas / Word (.txt)",
         data=st.session_state.documento_revisado.encode("utf-8"),
         file_name=st.session_state.nome_arquivo,
         mime="text/plain",
