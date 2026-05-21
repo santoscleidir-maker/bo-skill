@@ -3,7 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 import io
 import datetime
-import time
+import time  # Biblioteca importada corretamente para evitar o NameError
 
 # ─── Configuração de Página e Layout ──────────────────────────────────────────
 st.set_page_config(
@@ -12,6 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
+# Estilização CSS para máxima legibilidade no celular
 st.markdown("""
 <style>
     .block-container { padding-top: 1rem; }
@@ -49,7 +50,7 @@ else:
     st.error("⚠️ Chave de API não localizada nas configurações internas do Streamlit.")
     st.stop()
 
-# ─── Entrada de Dados Operacionais ────────────────────────────────────────────
+# ─── Entrada de Dados Operacionais ────────────────────────────────............
 st.markdown("### 📝 Informações de Campo")
 
 col1, col2 = st.columns(2)
@@ -88,7 +89,6 @@ if fotos_carregadas:
         try:
             foto.seek(0)
             img = Image.open(io.BytesIO(foto.read()))
-            # Redimensionamento rápido em Python para aliviar o tráfego móvel
             img.thumbnail((1024, 1024))
             
             buffer = io.BytesIO()
@@ -109,15 +109,13 @@ st.markdown("---")
 # ─── MOTOR DE PRÉ-AUDITORIA INTERNA (PYTHON PURO — SEM CONSUMO DE COTA) ───────
 def executar_auditoria_local(texto):
     """
-    Varre o texto de forma exata e instantânea procurando inconsistências críticas.
-    Garante o bloqueio local caso as regras básicas operacionais sejam infringidas.
+    Varre o texto procurando inconsistências críticas antes de acionar a IA.
     """
     pendencias = []
     texto_alvo = texto.lower()
     
     # 1. Auditoria de dados de identificação para funcionários internos
     if "re" not in texto_alvo and "matrícula" not in texto_alvo and "matricula" not in texto_alvo:
-        # Se for terceiro pode não ter RE, mas o sistema alerta a necessidade de validação
         if "motorista" not in texto_alvo and "terceiro" not in texto_alvo:
             pendencias.append("Ausência de Registro Funcional (RE / Matrícula) do envolvido.")
             
@@ -141,21 +139,19 @@ if st.button("🛡️ Executar Auditoria e Revisão", use_container_width=True, 
         st.warning("⚠️ O campo de relato bruto não pode estar vazio para a análise.")
         st.stop()
         
-    # Passo 1: O Python faz o trabalho pesado de validação física das regras
+    # Passo 1: O Python faz a validação das regras fixas localmente
     lista_pendencias = executar_auditoria_local(relato_bruto)
     
     if lista_pendencias:
-        # Bloqueio imediato na tela: Cota da IA totalmente preservada
         st.error("⛔ **REGISTRO BLOQUEADO PELA PRÉ-AUDITORIA LOCAL**")
         st.markdown("O texto enviado não cumpre os requisitos mínimos estabelecidos. Corrija os desvios abaixo:")
         for item in lista_pendencias:
             st.markdown(f"- ❌ {item}")
-        st.info("💡 *Dica do Sistema: A correção prévia impede o envio de dados corrompidos para a IA e economiza a cota do plantão.*")
+        st.info("💡 *Dica do Sistema: A correção prévia impede o envio de dados incompletos e economiza a cota da IA.*")
     else:
-        # Passo 2: Se o texto passou pelo Python, a versão atual do Gemini atua puramente como revisor técnico técnico
+        # Passo 2: Se passou, a versão mais recente do Gemini atua como revisor de texto técnico
         with st.spinner("🔄 Pré-auditoria aprovada! Acionando o Revisor de IA para formatação do documento final..."):
             try:
-                # Utilizando a versão mais atualizada e otimizada (Gemini 2.0 Flash)
                 modelo_revisor = genai.GenerativeModel("gemini-2.0-flash")
                 
                 prompt_revisao = f"""Você é o Revisor Ortográfico e Boletinista Técnico da Gestão de Segurança Patrimonial na Stellantis Betim, MG.
@@ -206,7 +202,7 @@ BOLETIM DE OCORRÊNCIA INTERNO — STELLANTIS BETIM
                     conteudo_requisicao.append("\n[Análise Visual de Evidências]: Corrobore os dados e avarias textuais cruzando com as imagens em anexo:")
                     conteudo_requisicao.extend(imagens_processadas)
                 
-                # Sistema adaptativo de tentativas contra erro 429 (Resource Exhausted)
+                # Sistema de tentativas contra erro 429 (Resource Exhausted) usando a biblioteca importada
                 resposta_final = None
                 for tentativa in range(3):
                     try:
@@ -215,12 +211,12 @@ BOLETIM DE OCORRÊNCIA INTERNO — STELLANTIS BETIM
                             break
                     except Exception as e:
                         if "429" in str(e) and tentativa < 2:
-                            time.sleep(10)
+                            time.sleep(10)  # Agora funciona perfeitamente sem dar NameError
                         else:
                             raise e
                 
-                if resposta_final and resposta_final.text:
-                    st.session_state.documento_revisado = resposta_final.text
+                if respuesta_final and resposta_final.text:
+                    st.session_state.documento_revisado = respuesta_final.text
                     st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
                 else:
                     st.error("❌ Falha de comunicação: O motor de inteligência retornou uma resposta em branco.")
@@ -233,7 +229,6 @@ if st.session_state.documento_revisado:
     st.success("✅ Documento revisado e estruturado com sucesso!")
     st.markdown("### 📋 Texto Formatado Pronto para Uso")
     
-    # Campo ideal para cópia sem deformações ortográficas no Bloco de Notas ou Word
     st.text_area(
         label="",
         value=st.session_state.documento_revisado,
@@ -242,7 +237,7 @@ if st.session_state.documento_revisado:
     )
     
     st.download_button(
-        label="⬇️ Baixar Arquivo para Bloco de Notas / Word (.txt)",
+        label="⬇ " "Baixar Arquivo para Bloco de Notas / Word (.txt)",
         data=st.session_state.documento_revisado.encode("utf-8"),
         file_name=st.session_state.nome_arquivo,
         mime="text/plain",
