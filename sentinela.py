@@ -34,20 +34,27 @@ st.markdown("# 🛡️ Sentinela Bravo")
 st.caption("Skill BO • Boletim de Ocorrência Inteligente — Stellantis Betim")
 st.markdown("---")
 
+# ─── Inicialização do Estado de Sessão (Evita sumir o texto ao baixar) ──────────
+if "bo_texto" not in st.session_state:
+    st.session_state.bo_texto = None
+if "nome_arquivo" not in st.session_state:
+    st.session_state.nome_arquivo = ""
+
 # ─── Configuração da API ────────────────────────────────────────────────────────
-try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
+# Busca flexível para evitar quebras por nomenclatura de chave
+api_key = st.secrets.get("GOOGLE_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+
+if api_key:
     genai.configure(api_key=api_key)
-    st.success("✅ Google Gemini AI Studio — gratuito, sem limite de cota")
-except KeyError:
-    st.error("⚠️ Chave **GOOGLE_API_KEY** não encontrada nos Secrets.")
+    st.success("✅ Google Gemini AI Studio — conectado com sucesso")
+else:
+    st.error("⚠️ Chave de API não encontrada nos Secrets.")
     st.info(
         "**Como obter sua chave gratuita:**\n"
         "1. Acesse [aistudio.google.com/apikey](https://aistudio.google.com/apikey)\n"
         "2. Clique em **Create API key**\n"
-        "3. Copie a chave\n"
-        "4. No Streamlit → Settings → Secrets → adicione:\n"
-        "```\nGOOGLE_API_KEY = \"sua-chave-aqui\"\n```"
+        "3. No Streamlit → Settings → Secrets → adicione:\n"
+        "```toml\nGOOGLE_API_KEY = \"sua-chave-aqui\"\n```"
     )
     st.stop()
 
@@ -159,7 +166,7 @@ Gere o BO agora:"""
 
             content = [prompt]
 
-            # Adicionar imagens se houver
+            # Otimização Inteligente de Imagens para ambiente de produção (Reduz consumo e acelera a API)
             if fotos:
                 content.append(
                     "A seguir estão as fotos de evidências. Para cada imagem, identifique e liste: "
@@ -169,43 +176,49 @@ Gere o BO agora:"""
                 for foto in fotos:
                     foto.seek(0)
                     img = Image.open(io.BytesIO(foto.read()))
-                    content.append(img)
+                    
+                    # Redimensiona mantendo a proporção para não sobrecarregar a rede móvel da portaria
+                    img.thumbnail((1024, 1024))
+                    buffer = io.BytesIO()
+                    img.save(buffer, format="JPEG", quality=78, optimize=True)
+                    
+                    content.append(Image.open(buffer))
 
             response = model.generate_content(content)
-            bo_texto = response.text
-
-            st.success("✅ Boletim gerado com sucesso!")
-            st.markdown("---")
-            st.markdown("## 📋 Boletim de Ocorrência")
-
-            # Exibir BO
-            st.text_area(
-                label="",
-                value=bo_texto,
-                height=600,
-                label_visibility="collapsed",
-                key="bo_output"
-            )
-
-            # Botão de download
-            nome_arquivo = (
+            
+            # Salvando o resultado no Estado da Sessão
+            st.session_state.bo_texto = response.text
+            st.session_state.nome_arquivo = (
                 f"BO_Stellantis_{data_oco.strftime('%Y%m%d')}"
                 f"_{hora_oco.replace(':', '')}.txt"
-            )
-            st.download_button(
-                label="⬇️ Baixar BO (.txt)",
-                data=bo_texto.encode("utf-8"),
-                file_name=nome_arquivo,
-                mime="text/plain",
-                use_container_width=True
             )
 
         except Exception as e:
             err = str(e)
             st.error(f"❌ Erro ao processar: {err}")
-            if "API_KEY" in err or "authentication" in err.lower():
-                st.info("Verifique se a chave GOOGLE_API_KEY está correta e ativa.")
-            elif "quota" in err.lower():
-                st.info("Limite de cota temporário. Aguarde alguns segundos e tente novamente.")
-            else:
-                st.info("Tente novamente. Se o erro persistir, verifique o código do app.")
+            if "quota" in err.lower() or "429" in err:
+                st.info("Limite de cota temporário do plano gratuito. Aguarde alguns segundos.")
+
+# ─── Área de Exibição Persistente (Impedem o desaparecimento dos dados) ───────
+if st.session_state.bo_texto:
+    st.success("✅ Boletim gerado com sucesso!")
+    st.markdown("---")
+    st.markdown("## 📋 Boletim de Ocorrência")
+
+    # Exibir BO
+    st.text_area(
+        label="",
+        value=st.session_state.bo_texto,
+        height=600,
+        label_visibility="collapsed",
+        key="bo_output"
+    )
+
+    # Botão de download funcional e testado
+    st.download_button(
+        label="⬇️ Baixar BO (.txt)",
+        data=st.session_state.bo_texto.encode("utf-8"),
+        file_name=st.session_state.nome_arquivo,
+        mime="text/plain",
+        use_container_width=True
+    )
