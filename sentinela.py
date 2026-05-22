@@ -48,7 +48,7 @@ api_key = st.secrets.get("GOOGLE_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 else:
-    st.error("⚠️ Chave de API não localizada. Configure GOOGLE_API_KEY nos Secrets do Streamlit.")
+    st.error("⚠️ Chave de API não localizada. Configure GOOGLE_API_KEY nos Secrets.")
     st.stop()
 
 # ─── Formulário de Dados Logísticos ───────────────────────────────────────────
@@ -82,7 +82,7 @@ relato_bruto = st.text_area(
     height=220
 )
 
-# ─── Upload de Evidências (Otimizado para não estourar limite de dados) ───────
+# ─── Upload de Evidências (Otimização Extrema de Memória) ─────────────────────
 st.markdown("### 📷 Evidências Visuais (opcional)")
 fotos_carregadas = st.file_uploader(
     "Anexe fotos da ocorrência",
@@ -98,20 +98,19 @@ if fotos_carregadas:
             foto.seek(0)
             img = Image.open(io.BytesIO(foto.read()))
             
-            # BLINDAGEM DE COTA: Redução drástica do tamanho da imagem para consumir menos tokens
-            img.thumbnail((800, 800)) 
+            # Super compactação para não estourar tráfego por minuto
+            img.thumbnail((600, 600)) 
             buffer = io.BytesIO()
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
             
-            # Qualidade em 50% diminui muito o peso do arquivo enviado à API
-            img.save(buffer, format="JPEG", quality=50, optimize=True)
+            img.save(buffer, format="JPEG", quality=40, optimize=True)
             buffer.seek(0)
             imagens_processadas.append(Image.open(buffer))
         except Exception:
             pass
     if imagens_processadas:
-        st.success(f"✅ {len(imagens_processadas)} imagem(ns) comprimida(s) e otimizada(s) para a cota.")
+        st.info(f"📸 {len(imagens_processadas)} imagem(ns) carregada(s) e compactada(s).")
 
 st.markdown("---")
 
@@ -193,19 +192,12 @@ def executar_auditoria_local(texto: str, local: str) -> list[dict]:
     if "danificado" in t or "danificada" in t:
         pendencias.append({
             "campo": "Terminologia Técnica",
-            "mensagem": "Uso do termo genérico 'danificado'. Substitua por: AMASSADO, RISCADO, QUEBRADO, etc."
-        })
-
-    # 8. Tamanho Mínimo
-    if len(texto.split()) < 15:
-        pendencias.append({
-            "campo": "Extensão do Relato",
-            "mensagem": "Relato muito curto para estruturação técnica."
+            "mensagem": "Uso do termo genérico 'danificado'. Substitua por termos descritivos (amassado, riscado, quebrado)."
         })
 
     return pendencias
 
-# ─── Botão Principal ──────────────────────────────────────────────────────────
+# ─── Processamento Combinado ──────────────────────────────────────────────────
 if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
 
     if not relato_bruto.strip():
@@ -220,13 +212,31 @@ if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
         for p in pendencias:
             st.markdown(f"<div class='pendencia-box'>❌ <strong>{p['campo']}</strong><br>{p['mensagem']}</div>", unsafe_allow_html=True)
     else:
-        with st.spinner("✅ Pré-auditoria aprovada! Formatando o boletim..."):
-            try:
-                # Inicialização limpa do modelo atualizado
-                modelo = genai.GenerativeModel("gemini-2.0-flash")
+        with st.spinner("⚡ Formatando documento oficial..."):
+            
+            analise_visual_texto = "Nenhuma evidência fotográfica anexada."
+            
+            # PASSO 2A: Tenta analisar imagens isoladamente se houver
+            if imagens_processadas:
+                try:
+                    modelo_visao = genai.GenerativeModel("gemini-1.5-flash")
+                    prompt_visao = "Descreva de forma extremamente resumida e em tópicos técnicos as avarias, placas ou irregularidades visíveis nesta imagem para um relatório de segurança."
+                    
+                    conteudo_visao = [prompt_visao] + imagens_processadas
+                    resposta_visao = modelo_visao.generate_content(conteudo_visao)
+                    
+                    if resposta_visao and resposta_visao.text:
+                        analise_visual_texto = resposta_visao.text
+                except Exception as erro_midia:
+                    # Se estourar a cota de imagem, o sistema avisa mas NÃO trava o BO
+                    analise_visual_texto = "Evidências anexadas (Análise automatizada indisponível devido ao limite de tráfego por minuto da API)."
 
-                prompt = f"""Você é o Boletinista Técnico da Gestão de Segurança Patrimonial da Stellantis Betim.
-Sua função é receber informações de campo já validadas e estruturá-las em um Boletim de Ocorrência Interno formal.
+            # PASSO 2B: Geração do BO usando o motor robusto de Texto puro
+            try:
+                modelo_texto = genai.GenerativeModel("gemini-2.0-flash")
+
+                prompt_final = f"""Você é o Boletinista Técnico da Gestão de Segurança Patrimonial da Stellantis Betim.
+Sua função é estruturar as informações validadas em um Boletim de Ocorrência Interno formal.
 
 DADOS LOGÍSTICOS:
 - Data: {data_fato.strftime('%d/%m/%Y')}
@@ -238,8 +248,11 @@ RELATO BRUTO APROVADO:
 {relato_bruto}
 \"\"\"
 
+ANÁLISE DE EVIDÊNCIAS VISUAIS DA OCORRÊNCIA:
+{analise_visual_texto}
+
 REGRAS DE ESCRITA:
-1. Identifique a natureza técnica da ocorrência no título.
+1. Identifique a natureza técnica da ocorrência no título (Maiúsculas).
 2. Linguagem técnica, factual, na terceira pessoa do plural (Registramos).
 3. Preserve EXATAMENTE: números de RE, placas, chassis e telefones.
 4. NUNCA use o termo "danificado". Use termos específicos (amassado, riscado, quebrado).
@@ -253,37 +266,20 @@ ESTRUTURA OBRIGATÓRIA:
 ----------------------------------------------------------------------
 Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
 """
-                conteudo = [prompt]
-                if imagens_processadas:
-                    conteudo.append("\n[Evidências visuais anexadas]:")
-                    conteudo.extend(imagens_processadas)
 
-                # Sistema Anti-Travamento 429 com Backoff Adaptativo
-                resposta = None
-                for tentativa in range(3):
-                    try:
-                        resposta = modelo.generate_content(
-                            conteudo,
-                            generation_config={"max_output_tokens": 1200, "temperature": 0.2}
-                        )
-                        if respuesta and hasattr(resposta, "text") and respuesta.text:
-                            break
-                    except Exception as e:
-                        if "429" in str(e) and tentativa < 2:
-                            time.sleep(20) # Aguarda 20 segundos para limpar a cota de tráfego
-                        else:
-                            raise e
+                resposta = modelo_texto.generate_content(
+                    prompt_final,
+                    generation_config={"max_output_tokens": 1000, "temperature": 0.1}
+                )
 
                 if resposta and resposta.text:
                     st.session_state.documento_final = resposta.text
                     st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
                 else:
-                    st.error("❌ A IA retornou resposta vazia. Tente novamente.")
+                    st.error("❌ O servidor retornou uma resposta em branco. Clique novamente.")
 
             except Exception as e:
-                st.error(f"❌ Erro no motor de IA: {str(e)}")
-                if "429" in str(e):
-                    st.warning("⚠️ O limite de dados por minuto do Google foi atingido devido ao peso das imagens. Aguarde 30 segundos e clique novamente.")
+                st.error(f"❌ Falha no processador de texto: {str(e)}")
 
 # ─── Exibição do Resultado ────────────────────────────────────────────────────
 if st.session_state.documento_final:
