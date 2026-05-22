@@ -74,9 +74,9 @@ relato_bruto = st.text_area(
     placeholder=(
         "Cole aqui o texto do WhatsApp ou anotações de campo.\n\n"
         "Campos do Modelo:\n"
-        "• Nome, Empresa/Cargo, Identificação, Filiação, Endereço e Telefone\n"
-        "• Líder/Supervisor ciente\n"
-        "• Histórico/Alegação e Desfecho"
+        "• Envolvidos / Líderes / Solicitantes\n"
+        "• Alegação do motorista OU orientação/restrição da liderança\n"
+        "• Providências e Desfecho"
     ),
     height=250
 )
@@ -132,36 +132,37 @@ def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[di
             "mensagem": "Nenhuma referência de localização encontrada no campo nem no relato."
         })
 
-    # 2. Dados de Contato Obrigatórios
+    # 2. Dados de Contato / Identificação
     tem_tel = bool(re.search(r'(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}|\btel\.?|\bfone|\bcelular|\bwhatsapp|\b319|\b31\s*9|\b7151|\b6299)', t))
     if not tem_tel:
         pendencias.append({
             "campo": "Telefone de Contato",
-            "mensagem": "Ausência de número de telefone de contato do condutor/envolvido."
+            "mensagem": "Ausência de número de telefone de contato do condutor ou da liderança no relato."
         })
 
-    # 3. Liderança ou Solicitante Responsável
-    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico|tecnico|tst|team leader|tean lider|coordenador|lopes|katleen|rafael|robson|bruno|giordano)\b', t))
+    # 3. Presença de Responsável (Lideranças / Solicitantes / Técnicos)
+    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico|tecnico|tst|team leader|tean lider|coordenador|lopes|katleen|rafael|robson|bruno|giordano|solicitante)\b', t))
     if not tem_lider:
         pendencias.append({
-            "campo": "Liderança Ciente",
-            "mensagem": "Identifique o Líder, Supervisor ou Solicitante responsável ciente da situação."
+            "campo": "Liderança / Solicitante",
+            "mensagem": "Identifique o Líder, Supervisor, Técnico ou Solicitante responsável no corpo do texto."
         })
 
-    # 4. Reconhecimento de Alegação Ampliado (Para restrições técnicas e impossibilidade de entrada)
-    tem_alegacao = bool(re.search(
-        r'\b(disse|alegou|declarou|informou|relatou|afirmou|mencionou|solicitou'
-        r'|constatou-se|ausência de condições|ausencia de condições|restrito|área restrita|area restrita'
-        r'|não foi possível|nao foi possivel|orientou|impossibilitando|não podia|nao podia|sem autorização)\b', 
+    # 4. Checagem Inteligente de Relato Técnico / Alegações / Restrições de Entrada
+    tem_dinamica = bool(re.search(
+        r'\b(disse|alegou|declarou|informou|relatou|afirmou|mencionou|solicitou|autorizou'
+        r'|constatou|ausência de condições|ausencia de condições|restrito|área restrita|area restrita'
+        r'|não foi possível|nao foi possivel|orientou|impossibilitando|não podia|nao podia'
+        r'|recusa|defeito|falha|problema|vazamento|chiller)\b', 
         t
     ))
-    if not tem_alegacao:
+    if not tem_dinamica:
         pendencias.append({
-            "campo": "Alegação do Envolvido",
-            "mensagem": "Registre a justificativa, restrição técnica ou alegação relatada pelos envolvidos."
+            "campo": "Histórico / Alegação",
+            "mensagem": "O relato precisa conter a justificativa do envolvido ou a diretriz/restrição da liderança."
         })
 
-    # 5. Desfecho Técnico/Logístico
+    # 5. Desfecho Técnico / Direcionamento
     palavras_desfecho = [
         "encaminhado", "liberado", "recolhido", "orientado", "retirado",
         "acionado", "notificado", "saiu", "retornou", "foi para", "reparação",
@@ -172,14 +173,14 @@ def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[di
     if not tem_desfecho:
         pendencias.append({
             "campo": "Desfecho / Resolução",
-            "mensagem": "Informe a resolução ou o direcionamento final do veículo/plantão."
+            "mensagem": "Informe a resolução ou o direcionamento final do plantão."
         })
 
     # 6. Validação de Termo Genérico Proibido
     if "danificado" in t or "danificada" in t:
         pendencias.append({
             "campo": "Terminologia Técnica",
-            "mensagem": "Substitua o termo genérico 'danificado' por especificações (amassado, riscado, quebrado)."
+            "mensagem": "Substitua o termo genérico 'danificado' por especificações técnicas (ex: amassado, quebrado, trincado)."
         })
 
     return pendencias
@@ -205,50 +206,47 @@ if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
                 modelo = genai.GenerativeModel("gemini-2.0-flash")
 
                 prompt_final = f"""Você é o Boletinista Técnico da Gestão de Segurança Patrimonial da Stellantis Betim.
-Sua função é estruturar as informações validadas rigorosamente de acordo com o modelo de relatório técnico da planta.
+Sua função é estruturar as informações validadas rigorosamente de acordo com o modelo de relatório técnico corporativo da planta.
 
-DADOS DE ENTRADA:
+DADOS DE ENTRADA DA TELA:
 - Data: {data_fato.strftime('%d/%m/%Y')}
 - Hora: {hora_fato}
 - Local: {local_detalhado if local_detalhado.strip() else 'Declarado no relato técnico'}
 
-RELATO INTEGRAL COPIADO:
+RELATO INTEGRAL ENVIADO:
 \"\"\"
 {relato_bruto}
 \"\"\"
 
 REGRAS DE CONSTRUÇÃO MANDATÓRIAS:
-1. Monte o Título em letras maiúsculas baseado na natureza (Ex: VAZAMENTO DE FLUIDO EM MAQUINÁRIO INDUSTRIAL / CHILLER).
-2. Use linguagem formal, técnica e impessoal ("Registramos", "Verificamos").
-3. Mantenha fidelidade total a nomes, registros, matrículas, empresas e contatos informados.
-4. Caso haja imagens anexadas abaixo, utilize-as para realizar a extração ou conferência de dados.
-5. Substitua qualquer menção a "danificado" por termos precisos ("avariado", "quebrado", "amassado").
+1. TÍTULO: Em letras maiúsculas baseado na natureza exata (Ex: VAZAMENTO DE FLUIDO EM MAQUINÁRIO INDUSTRIAL / DEFEITO EM VEÍCULO EXTERNO).
+2. LINGUAGEM: Formal, técnica e impessoal ("Registramos", "Verificamos", "Constatou-se").
+3. FIDELIDADE: Mantenha todos os nomes, registros (RE, Matrícula, IDSAP), empresas, placas de veículos, MVMs e contatos telefônicos exatamente como digitados.
+4. IMAGENS: Se houver evidências abaixo, use-as para conferência ou extração de dados complementares.
+5. TERMO PROIBIDO: Nunca utilize a palavra "danificado". Use termos específicos como "avariado", "quebrado", "vazamento", "falha na válvula".
 
-ESTRUTURA FIXA OBRIGATÓRIA (SIGA EXATAMENTE ESTE MODELO DE EXIBIÇÃO):
+ESTRUTURA FIXA DO BOLETIM (MONTE EXATAMENTE NESTES CAMPOS):
 
 [TÍTULO DA OCORRÊNCIA EM MAIÚSCULAS]
 
 1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
 - Data do Fato: {data_fato.strftime('%d/%m/%Y')}
 - Hora do Fato: {hora_fato}
-- Local Exato: [Inserir Local detalhado]
+- Local Exato: [Local detalhado da planta/galpão]
 
-2. QUALIFICAÇÃO DOS ENVOLVIDOS / DADOS COMPLEMENTARES
-- Nome/Envolvido: [Nome Completo e Cargo/Função]
-- Registro / Matrícula: [Número de ID, RE ou Matrícula se houver]
-- Empresa / Setor: [Empresa ou Setor de lotação]
-- Filiação: [Se houver no texto, caso contrário indicar: "Não informada"]
-- Endereço: [Se houver no texto, caso contrário indicar: "Não informado"]
-- Telefone: [Número de contato]
+2. QUALIFICAÇÃO DOS ENVOLVIDOS / SOLICITANTES / LIDERANÇAS
+[Listar de forma organizada todos os personagens identificados no relato: Motoristas (com Empresa/Placas/MVM), Técnicos de Segurança (Matrículas/IDSAP) e Team Leaders de Manutenção, acompanhados de seus respectivos telefones de contato]
 
 3. HISTÓRICO DOS FATOS
-[Narrar aqui o texto corrido de forma culta, cronológica e limpa, detalhando a constatação do vazamento e as vistorias de campo]
+[Narrar aqui o texto corrido de forma culta, cronológica e limpa, detalhando a dinâmica completa dos fatos e horários citados]
 
-4. ALEGAÇÃO DO ENVOLVIDO / RESTRIÇÕES OPERACIONAIS
-[Registrar explicitamente as alegações ou impedimentos técnicos constatados (ex: a restrição técnica da profissional de não poder adentrar ao maquinário restrito sem autorização do responsável pela área).]
+4. ALEGAÇÃO DOS ENVOLVIDOS / RESTRIÇÕES OPERACIONAIS DA LIDERANÇA
+[Separar claramente: 
+- Se for motorista/agregado: registrar a alegação dele sobre a falha mecânica/logística.
+- Se for técnico/liderança: registrar a impossibilidade de entrada, restrição da área ou orientação dada por eles (ex: a restrição técnica da TST de não adentrar ao maquinário industrial por falta de acesso técnico).]
 
 5. PROVIDÊNCIAS ADOTADAS / DESFECHO
-[Listar os acionamentos de lideranças de manutenção, orientações recebidas e direcionamentos para correção da área]
+[Listar autorizações dadas, contatos realizados para apoio externo, vistorias de avarias pela Patrimonial e o encerramento do atendimento no local]
 ----------------------------------------------------------------------
 Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
 Relator: Vigilante Cleidir Alves
