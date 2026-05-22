@@ -125,11 +125,24 @@ def executar_auditoria_local(texto: str, local: str) -> list[dict]:
     t = texto.lower()
 
     # ── 1. LOCAL DO FATO ──────────────────────────────────────────────────────
-    if not local or len(local.strip()) < 5:
+    # Aceita se o campo "Local Exato" estiver preenchido OU se o corpo do
+    # relato já contém referência de localização da planta (galpão, portaria,
+    # coluna, sala, área, pátio, baia, portão, recebimento, almoxarifado etc.)
+    local_no_campo = local and len(local.strip()) >= 5
+    local_no_texto = bool(re.search(
+        r'\b(galpão|galpao|portaria|coluna|sala|pátio|patio|baia|baía'
+        r'|portão|portao|recebimento|almoxarifado|área|area'
+        r'|refeitório|refeitorio|estacionamento|pátio central'
+        r'|cso|cku|ckd|oficina|restaurante|guarita|cancela'
+        r'|p1|p2|p3|p4|p5|p6|p7|p8)\b',
+        t
+    ))
+    if not local_no_campo and not local_no_texto:
         pendencias.append({
             "campo": "Local Exato",
-            "mensagem": "Campo 'Local Exato' não preenchido ou muito genérico. "
-                        "Informe galpão, portaria, coluna ou área específica."
+            "mensagem": "Nenhuma referência de localização encontrada no campo nem no relato. "
+                        "Preencha o campo 'Local Exato' ou mencione no texto o galpão, "
+                        "portaria, coluna, sala ou área onde ocorreu o fato."
         })
 
     # ── 2. IDENTIFICAÇÃO DO ENVOLVIDO (nome + RE/matrícula) ───────────────────
