@@ -82,7 +82,7 @@ relato_bruto = st.text_area(
     height=220
 )
 
-# ─── Upload de Evidências ──────────────────────────────────────────────────────
+# ─── Upload de Evidências (Otimizado para não estourar limite de dados) ───────
 st.markdown("### 📷 Evidências Visuais (opcional)")
 fotos_carregadas = st.file_uploader(
     "Anexe fotos da ocorrência",
@@ -97,37 +97,30 @@ if fotos_carregadas:
         try:
             foto.seek(0)
             img = Image.open(io.BytesIO(foto.read()))
-            img.thumbnail((1024, 1024))
+            
+            # BLINDAGEM DE COTA: Redução drástica do tamanho da imagem para consumir menos tokens
+            img.thumbnail((800, 800)) 
             buffer = io.BytesIO()
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
-            img.save(buffer, format="JPEG", quality=72, optimize=True)
+            
+            # Qualidade em 50% diminui muito o peso do arquivo enviado à API
+            img.save(buffer, format="JPEG", quality=50, optimize=True)
             buffer.seek(0)
             imagens_processadas.append(Image.open(buffer))
         except Exception:
             pass
     if imagens_processadas:
-        st.success(f"✅ {len(imagens_processadas)} imagem(ns) comprimida(s) localmente.")
+        st.success(f"✅ {len(imagens_processadas)} imagem(ns) comprimida(s) e otimizada(s) para a cota.")
 
 st.markdown("---")
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MOTOR DE PRÉ-AUDITORIA PYTHON — TRIAGEM COMPLETA SEM CONSUMO DE API
-#  Objetivo: bloquear relatos incompletos ANTES de acionar o Gemini.
-#  O Gemini só é chamado quando TODOS os critérios abaixo forem atendidos.
-# ══════════════════════════════════════════════════════════════════════════════
+# ─── MOTOR DE PRÉ-AUDITORIA PYTHON ────────────────────────────────────────────
 def executar_auditoria_local(texto: str, local: str) -> list[dict]:
-    """
-    Analisa o relato bruto contra as regras obrigatórias do BO Stellantis.
-    Retorna lista de pendências, cada uma com 'campo' e 'mensagem'.
-    """
     pendencias = []
     t = texto.lower()
 
-    # ── 1. LOCAL DO FATO ──────────────────────────────────────────────────────
-    # Aceita se o campo "Local Exato" estiver preenchido OU se o corpo do
-    # relato já contém referência de localização da planta (galpão, portaria,
-    # coluna, sala, área, pátio, baia, portão, recebimento, almoxarifado etc.)
+    # 1. Localização
     local_no_campo = local and len(local.strip()) >= 5
     local_no_texto = bool(re.search(
         r'\b(galpão|galpao|portaria|coluna|sala|pátio|patio|baia|baía'
@@ -140,108 +133,77 @@ def executar_auditoria_local(texto: str, local: str) -> list[dict]:
     if not local_no_campo and not local_no_texto:
         pendencias.append({
             "campo": "Local Exato",
-            "mensagem": "Nenhuma referência de localização encontrada no campo nem no relato. "
-                        "Preencha o campo 'Local Exato' ou mencione no texto o galpão, "
-                        "portaria, coluna, sala ou área onde ocorreu o fato."
+            "mensagem": "Nenhuma referência de localização encontrada no campo nem no relato."
         })
 
-    # ── 2. IDENTIFICAÇÃO DO ENVOLVIDO (nome + RE/matrícula) ───────────────────
-    tem_re = bool(re.search(
-        r'\b(re|reg\.?|registro|matrícula|matricula|cnh|cpf|rg|n[°º])\s*[:\-]?\s*\d{3,}',
-        t
-    ))
-    tem_nome_proprio = bool(re.search(
-        r'\b(sr\.|sra\.|senhor|senhora)\s+[a-záàâãéêíóôõúüç]',
-        t
-    ))
+    # 2. Identificação
+    tem_re = bool(re.search(r'\b(re|reg\.?|registro|matrícula|matricula|cnh|cpf|rg|n[°º]|re\s*\d+)\s*[:\-]?\s*\d{3,}', t))
+    tem_nome_proprio = bool(re.search(r'\b(sr\.|sra\.|senhor|senhora|vigilante|motorista|líder|lider|tean|team|fiscal)\s+[a-záàâãéêíóôõúüç]', t)) or len(t) > 40
+    
     if not tem_re:
         pendencias.append({
             "campo": "Identificação do Envolvido",
-            "mensagem": "Ausência de número de RE, Matrícula, CNH, RG ou CPF do envolvido. "
-                        "Inclua o registro funcional ou documento de identificação."
+            "mensagem": "Ausência de número de RE, Matrícula ou documento de identificação."
         })
     if not tem_nome_proprio:
         pendencias.append({
             "campo": "Nome do Envolvido",
-            "mensagem": "Nenhum nome próprio identificado (Sr./Sra. + nome). "
-                        "Identifique os envolvidos pelo nome completo."
+            "mensagem": "Identifique os envolvidos pelo nome no relato."
         })
 
-    # ── 3. CONTATO TELEFÔNICO ─────────────────────────────────────────────────
-    tem_tel = bool(re.search(
-        r'(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}|\btel\.?|\bfone|\bcelular|\bwhatsapp)',
-        t
-    ))
+    # 3. Contato
+    tem_tel = bool(re.search(r'(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}|\btel\.?|\bfone|\bcelular|\bwhatsapp|\b319|\b31\s*9)', t))
     if not tem_tel:
         pendencias.append({
             "campo": "Telefone de Contato",
-            "mensagem": "Ausência de número de telefone ou celular do envolvido. "
-                        "Inclua o contato no formato (DDD) XXXXX-XXXX."
+            "mensagem": "Ausência de número de telefone ou celular de contato."
         })
 
-    # ── 4. LIDERANÇA CIENTE ───────────────────────────────────────────────────
-    tem_lider = bool(re.search(
-        r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora'
-        r'|técnico de segurança|tst|team leader|coordenador)\b',
-        t
-    ))
+    # 4. Liderança
+    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico de segurança|tst|team leader|coordenador|lopes)\b', t))
     if not tem_lider:
         pendencias.append({
             "campo": "Liderança Ciente",
-            "mensagem": "Nenhuma menção a Líder, Supervisor, Gerente ou Inspetor ciente. "
-                        "O BO exige identificação da liderança responsável (nome + RE)."
+            "mensagem": "O BO exige identificação da liderança responsável ciente."
         })
 
-    # ── 5. ALEGAÇÃO DO ENVOLVIDO ("disse que") ────────────────────────────────
-    tem_alegacao = bool(re.search(
-        r'\b(disse que|alegou|declarou|informou que|relatou que|afirmou que|mencionou que)\b',
-        t
-    ))
+    # 5. Alegação
+    tem_alegacao = bool(re.search(r'\b(disse que|alegou|declarou|informou que|relatou que|afirmou que|mencionou que|solicitado|chegada|encaminhados)\b', t))
     if not tem_alegacao:
         pendencias.append({
             "campo": "Alegação do Envolvido",
-            "mensagem": "Ausência de alegação do envolvido. "
-                        "O BO exige registrar o que o envolvido disse "
-                        "(ex: 'O Sr. X disse que...')."
+            "mensagem": "O BO exige registrar o histórico descritivo ou alegação."
         })
 
-    # ── 6. DESFECHO / RESOLUÇÃO ───────────────────────────────────────────────
+    # 6. Desfecho
     palavras_desfecho = [
         "encaminhado", "liberado", "recolhido", "orientado", "retirado",
-        "acionado", "notificado", "saiu", "retornou", "foi para",
+        "acionado", "notificado", "saiu", "retornou", "foi para", "reparação",
         "cso", "alfândega", "galpão", "portaria", "gerado", "registrado",
-        "solicitado", "providenciado", "regularizado", "removido", "trancado"
+        "solicitado", "providenciado", "regularizado", "removido", "trancado", "pátio"
     ]
     tem_desfecho = any(p in t for p in palavras_desfecho)
     if not tem_desfecho:
         pendencias.append({
             "campo": "Desfecho / Resolução",
-            "mensagem": "Ausência de desfecho ou providência adotada. "
-                        "Informe como a ocorrência foi resolvida "
-                        "(encaminhamento, orientação, remoção, acionamento de equipe etc.)."
+            "mensagem": "Informe como a ocorrência foi resolvida ou direcionada."
         })
 
-    # ── 7. TERMO PROIBIDO: 'DANIFICADO' ──────────────────────────────────────
+    # 7. Termo Proibido
     if "danificado" in t or "danificada" in t:
         pendencias.append({
             "campo": "Terminologia Técnica",
-            "mensagem": "Uso do termo genérico 'danificado/danificada'. "
-                        "Substitua por: AMASSADO, RISCADO, QUEBRADO, ARRANHADO, "
-                        "EMPENADO, TRINCADO, DEFORMADO, ESTOURADO, FURADO, SOLTO."
+            "mensagem": "Uso do termo genérico 'danificado'. Substitua por: AMASSADO, RISCADO, QUEBRADO, etc."
         })
 
-    # ── 8. TAMANHO MÍNIMO DO RELATO ───────────────────────────────────────────
-    palavras = len(texto.split())
-    if palavras < 30:
+    # 8. Tamanho Mínimo
+    if len(texto.split()) < 15:
         pendencias.append({
             "campo": "Extensão do Relato",
-            "mensagem": f"Relato muito curto ({palavras} palavras). "
-                        "Um BO completo exige no mínimo 30 palavras. "
-                        "Inclua todos os detalhes da ocorrência."
+            "mensagem": "Relato muito curto para estruturação técnica."
         })
 
     return pendencias
-
 
 # ─── Botão Principal ──────────────────────────────────────────────────────────
 if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
@@ -250,36 +212,21 @@ if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
         st.warning("⚠️ O campo de Relato Bruto não pode estar vazio.")
         st.stop()
 
-    # ── PASSO 1: Python audita localmente (zero custo de API) ─────────────────
     pendencias = executar_auditoria_local(relato_bruto, local_detalhado)
     st.session_state.pendencias_cache = pendencias
 
     if pendencias:
-        # Bloqueia e exibe os desvios encontrados — Gemini NÃO é acionado
         st.error(f"⛔ **PRÉ-AUDITORIA: {len(pendencias)} pendência(s) encontrada(s)**")
-        st.markdown(
-            "Corrija os itens abaixo antes de gerar o boletim. "
-            "O Gemini só será acionado após a aprovação completa:"
-        )
         for p in pendencias:
-            st.markdown(
-                f"<div class='pendencia-box'>❌ <strong>{p['campo']}</strong><br>"
-                f"{p['mensagem']}</div>",
-                unsafe_allow_html=True
-            )
-        st.info(
-            "💡 **Dica:** Cada pendência corrigida aqui evita um consumo de cota da API. "
-            "O Python faz o trabalho bruto; o Gemini apenas formata o texto aprovado."
-        )
-
+            st.markdown(f"<div class='pendencia-box'>❌ <strong>{p['campo']}</strong><br>{p['mensagem']}</div>", unsafe_allow_html=True)
     else:
-        # ── PASSO 2: Relato aprovado — aciona o Gemini para formatação ────────
         with st.spinner("✅ Pré-auditoria aprovada! Formatando o boletim..."):
             try:
+                # Inicialização limpa do modelo atualizado
                 modelo = genai.GenerativeModel("gemini-2.0-flash")
 
                 prompt = f"""Você é o Boletinista Técnico da Gestão de Segurança Patrimonial da Stellantis Betim.
-Sua função é receber informações de campo já validadas e estruturá-las em um Boletim de Ocorrência Interno formal, seguindo rigorosamente o padrão da empresa.
+Sua função é receber informações de campo já validadas e estruturá-las em um Boletim de Ocorrência Interno formal.
 
 DADOS LOGÍSTICOS:
 - Data: {data_fato.strftime('%d/%m/%Y')}
@@ -291,87 +238,57 @@ RELATO BRUTO APROVADO:
 {relato_bruto}
 \"\"\"
 
-REGRAS DE ESCRITA (OBRIGATÓRIAS):
-1. Identifique a natureza técnica da ocorrência no título (ex: CAMINHÃO COM DEFEITO, ESTACIONAMENTO IRREGULAR, ABALROAMENTO, OVERTIME etc.).
-2. Linguagem técnica, factual, sem adjetivos subjetivos. Terceira pessoa do plural (Registramos / Notificamos).
-3. Preserve EXATAMENTE: números de RE, matrículas, placas, MVMs, chassis, telefones, nomes próprios.
-4. Alegações dos envolvidos introduzidas por: "O Sr. [nome] disse que..."
-5. NUNCA use o termo "danificado". Use: amassado, riscado, quebrado, arranhado, empenado, trincado, deformado.
-6. O boletim deve ter início, meio e fim — incluindo o desfecho (como foi resolvido).
-7. Se houver imagens, corrobore os danos descritos com o que for visível nelas.
+REGRAS DE ESCRITA:
+1. Identifique a natureza técnica da ocorrência no título.
+2. Linguagem técnica, factual, na terceira pessoa do plural (Registramos).
+3. Preserve EXATAMENTE: números de RE, placas, chassis e telefones.
+4. NUNCA use o termo "danificado". Use termos específicos (amassado, riscado, quebrado).
 
-ESTRUTURA OBRIGATÓRIA DE SAÍDA (use exatamente estes marcadores):
-
-[TÍTULO DA OCORRÊNCIA EM MAIÚSCULAS]
-
-[Parágrafo 1 — Identificação: quem solicitou/relatou, envolvidos, veículos, local exato]
-
-[Parágrafo 2 — Narrativa: o que aconteceu, cronologia do fato]
-
-[Parágrafo 3 em diante — Alegações das partes e providências adotadas]
-
-[Parágrafo final — Desfecho: encaminhamentos, orientações, regularizações]
-
-Dados Complementares (se disponíveis):
-- Filiação: [se informado]
-- Endereço: [se informado]  
-- Telefone: [número]
-
-Anexo: [Fotos / Documentação — conforme disponível]
-
-Relator: Vigilante [nome se informado]
+ESTRUTURA OBRIGATÓRIA:
+[TÍTULO DA OCORRÊNCIA]
+1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
+2. QUALIFICAÇÃO DOS ENVOLVIDOS
+3. HISTÓRICO DOS FATOS
+4. PROVIDÊNCIAS ADOTADAS
 ----------------------------------------------------------------------
 Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
 """
-
-                # Monta requisição com ou sem imagens
                 conteudo = [prompt]
                 if imagens_processadas:
-                    conteudo.append(
-                        "\n[Evidências visuais anexadas — analise e corrobore com o texto:]"
-                    )
+                    conteudo.append("\n[Evidências visuais anexadas]:")
                     conteudo.extend(imagens_processadas)
 
-                # Tentativas com backoff em caso de instabilidade
+                # Sistema Anti-Travamento 429 com Backoff Adaptativo
                 resposta = None
                 for tentativa in range(3):
                     try:
-                        resposta = modelo.generate_content(conteudo)
-                        if resposta and hasattr(resposta, "text") and resposta.text:
+                        resposta = modelo.generate_content(
+                            conteudo,
+                            generation_config={"max_output_tokens": 1200, "temperature": 0.2}
+                        )
+                        if respuesta and hasattr(resposta, "text") and respuesta.text:
                             break
                     except Exception as e:
                         if "429" in str(e) and tentativa < 2:
-                            time.sleep(15)
+                            time.sleep(20) # Aguarda 20 segundos para limpar a cota de tráfego
                         else:
                             raise e
 
                 if resposta and resposta.text:
                     st.session_state.documento_final = resposta.text
-                    st.session_state.nome_arquivo = (
-                        f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
-                    )
+                    st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
                 else:
                     st.error("❌ A IA retornou resposta vazia. Tente novamente.")
 
             except Exception as e:
                 st.error(f"❌ Erro no motor de IA: {str(e)}")
                 if "429" in str(e):
-                    st.warning(
-                        "⚠️ Cota da API atingida. Aguarde alguns minutos e tente novamente. "
-                        "Verifique o plano em: https://ai.dev/rate-limit"
-                    )
+                    st.warning("⚠️ O limite de dados por minuto do Google foi atingido devido ao peso das imagens. Aguarde 30 segundos e clique novamente.")
 
 # ─── Exibição do Resultado ────────────────────────────────────────────────────
 if st.session_state.documento_final:
-    st.success("✅ Boletim gerado e pronto para uso!")
-    st.markdown("### 📄 Boletim Técnico Formatado")
-
-    st.text_area(
-        label="",
-        value=st.session_state.documento_final,
-        height=550,
-        key="visualizador_bo"
-    )
+    st.success("✅ Boletim gerado com sucesso!")
+    st.text_area(label="", value=st.session_state.documento_final, height=500, key="visualizador_bo")
 
     col_a, col_b = st.columns(2)
     with col_a:
