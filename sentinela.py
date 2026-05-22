@@ -66,20 +66,19 @@ with col2:
 
 local_detalhado = st.text_input(
     "Local Exato",
-    placeholder="Ex: Galpão 04, colunas 26AB / Portaria 03, baia 02..."
+    placeholder="Ex: Galpão 24, adjacente à Sala 28..."
 )
 
 relato_bruto = st.text_area(
     "Relato Bruto do Plantão",
     placeholder=(
         "Cole aqui o texto do WhatsApp ou anotações de campo.\n\n"
-        "OBRIGATÓRIO conter:\n"
-        "• Nome e dados do envolvido (RE se funcionário, ou Placa/MVM se motorista externo)\n"
-        "• Nome do Líder/Supervisor/Gerente ciente\n"
-        "• Histórico ou alegação do condutor\n"
-        "• Como a situação foi RESOLVIDA (desfecho)"
+        "Campos do Modelo:\n"
+        "• Nome, Empresa/Cargo, Identificação, Filiação, Endereço e Telefone\n"
+        "• Líder/Supervisor ciente\n"
+        "• Histórico/Alegação e Desfecho"
     ),
-    height=220
+    height=250
 )
 
 # ─── Upload de Evidências (Otimizado e Inteligente) ───────────────────────────
@@ -97,8 +96,6 @@ if fotos_carregadas:
         try:
             foto.seek(0)
             img = Image.open(io.BytesIO(foto.read()))
-            
-            # Redimensionamento para não estourar limite por minuto da API gratuita
             img.thumbnail((800, 800)) 
             buffer = io.BytesIO()
             if img.mode in ("RGBA", "P"):
@@ -110,11 +107,11 @@ if fotos_carregadas:
         except Exception:
             pass
     if imagens_processadas:
-        st.success(f"✅ {len(imagens_processadas)} imagem(ns) carregada(s) com sucesso.")
+        st.success(f"✅ {len(imagens_processadas)} imagem(ns) carregada(s) para validação visual.")
 
 st.markdown("---")
 
-# ─── MOTOR DE PRÉ-AUDITORIA PYTHON (INTELIGENTE PARA LOGÍSTICA/AGREGADOS) ──────
+# ─── MOTOR DE PRÉ-AUDITORIA PYTHON ATUALIZADO ──────────────────────────────────
 def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[dict]:
     pendencias = []
     t = texto.lower()
@@ -135,59 +132,54 @@ def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[di
             "mensagem": "Nenhuma referência de localização encontrada no campo nem no relato."
         })
 
-    # 2. Identificação Inteligente (Aceita RE para funcionário OU Placa/MVM/Transportadora para Externos)
-    is_externo_logistica = any(p in t for p in ["placa", "mvm", "transportadora", "condutor", "motorista", "carreta", "truck", "agregado"])
-    tem_re = bool(re.search(r'\b(re|reg\.?|registro|matrícula|matricula|cnh|cpf|rg|n[°º]|re\s*\d+)\s*[:\-]?\s*\d{3,}', t))
-    
-    if not tem_re and not is_externo_logistica and not tem_fotos:
-        pendencias.append({
-            "campo": "Identificação do Envolvido",
-            "mensagem": "Ausência de RE ou identificação de veículo externo (Placa/MVM/Transportadora)."
-        })
-
-    # 3. Contato
-    tem_tel = bool(re.search(r'(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}|\btel\.?|\bfone|\bcelular|\bwhatsapp|\b319|\b31\s*9)', t))
+    # 2. Dados de Contato Obrigatórios
+    tem_tel = bool(re.search(r'(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}|\btel\.?|\bfone|\bcelular|\bwhatsapp|\b319|\b31\s*9|\b7151|\b6299)', t))
     if not tem_tel:
         pendencias.append({
             "campo": "Telefone de Contato",
-            "mensagem": "Ausência de número de telefone de contato no relato."
+            "mensagem": "Ausência de número de telefone de contato do condutor/envolvido."
         })
 
-    # 4. Liderança ou Solicitante Ciente
-    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico de segurança|tst|team leader|tean lider|coordenador|lopes|katleen|rafael|robson)\b', t))
+    # 3. Liderança ou Solicitante Responsável
+    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico|tecnico|tst|team leader|tean lider|coordenador|lopes|katleen|rafael|robson|bruno|giordano)\b', t))
     if not tem_lider:
         pendencias.append({
             "campo": "Liderança Ciente",
-            "mensagem": "O BO exige a indicação da liderança ou solicitante responsável ciente do fato."
+            "mensagem": "Identifique o Líder, Supervisor ou Solicitante responsável ciente da situação."
         })
 
-    # 5. Histórico / Dinâmica
-    tem_alegacao = bool(re.search(r'\b(disse que|alegou|declarou|informou que|relatou que|afirmou que|mencionou que|solicitado|chegada|encaminhados|solicitou|apresentou)\b', t))
+    # 4. Reconhecimento de Alegação Ampliado (Para restrições técnicas e impossibilidade de entrada)
+    tem_alegacao = bool(re.search(
+        r'\b(disse|alegou|declarou|informou|relatou|afirmou|mencionou|solicitou'
+        r'|constatou-se|ausência de condições|ausencia de condições|restrito|área restrita|area restrita'
+        r'|não foi possível|nao foi possivel|orientou|impossibilitando|não podia|nao podia|sem autorização)\b', 
+        t
+    ))
     if not tem_alegacao:
         pendencias.append({
-            "campo": "Histórico dos Fatos",
-            "mensagem": "O relato precisa conter a descrição da dinâmica ou alegação do condutor."
+            "campo": "Alegação do Envolvido",
+            "mensagem": "Registre a justificativa, restrição técnica ou alegação relatada pelos envolvidos."
         })
 
-    # 6. Desfecho
+    # 5. Desfecho Técnico/Logístico
     palavras_desfecho = [
         "encaminhado", "liberado", "recolhido", "orientado", "retirado",
         "acionado", "notificado", "saiu", "retornou", "foi para", "reparação",
         "cso", "alfândega", "galpão", "portaria", "gerado", "registrado",
-        "solicitado", "providenciado", "regularizado", "removido", "trancado", "pátio", "patio", "saída"
+        "solicitado", "providenciado", "regularizado", "removido", "trancado", "pátio", "patio", "saída", "previsão", "encerrada", "contato"
     ]
     tem_desfecho = any(p in t for p in palavras_desfecho)
     if not tem_desfecho:
         pendencias.append({
             "campo": "Desfecho / Resolução",
-            "mensagem": "Informe a resolução ou o direcionamento final dado ao veículo/fato."
+            "mensagem": "Informe a resolução ou o direcionamento final do veículo/plantão."
         })
 
-    # 7. Bloqueio de termo proibido (Apenas se não for do próprio texto do usuário aprovado)
+    # 6. Validação de Termo Genérico Proibido
     if "danificado" in t or "danificada" in t:
         pendencias.append({
             "campo": "Terminologia Técnica",
-            "mensagem": "Uso do termo genérico 'danificado'. Substitua por termos específicos (amassado, riscado, quebrado)."
+            "mensagem": "Substitua o termo genérico 'danificado' por especificações (amassado, riscado, quebrado)."
         })
 
     return pendencias
@@ -208,48 +200,58 @@ if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
         for p in pendencias:
             st.markdown(f"<div class='pendencia-box'>❌ <strong>{p['campo']}</strong><br>{p['mensagem']}</div>", unsafe_allow_html=True)
     else:
-        with st.spinner("⚡ Processando e aplicando formatação Stellantis..."):
+        with st.spinner("⚡ Formatando BO conforme o modelo oficial Stellantis..."):
             try:
                 modelo = genai.GenerativeModel("gemini-2.0-flash")
 
                 prompt_final = f"""Você é o Boletinista Técnico da Gestão de Segurança Patrimonial da Stellantis Betim.
-Sua função é estruturar as informações validadas em um Boletim de Ocorrência Interno formal, seguindo os padrões corporativos.
+Sua função é estruturar as informações validadas rigorosamente de acordo com o modelo de relatório técnico da planta.
 
-DADOS DA TELA:
+DADOS DE ENTRADA:
 - Data: {data_fato.strftime('%d/%m/%Y')}
 - Hora: {hora_fato}
 - Local: {local_detalhado if local_detalhado.strip() else 'Declarado no relato técnico'}
 
-RELATO INTEGRAL ENVIADO:
+RELATO INTEGRAL COPIADO:
 \"\"\"
 {relato_bruto}
 \"\"\"
 
-REGRAS DE CONSTRUÇÃO DO BO:
-1. Use o título padrão em caixa alta de acordo com a natureza exata técnica encontrada.
-2. Escreva em linguagem culta, impessoal (terceira pessoa do plural: Registramos, Verificamos).
-3. Mantenha fielmente todas as informações: nomes de motoristas agregados, placas de cavalos mecânicos/carretas, MVMs, fornecedores, transportadoras e telefones de contato.
-4. Caso imagens estejam anexadas abaixo, faça a varredura visual inteligente para complementar dados de CNH/RG/MVM ou ratificar avarias relatadas.
-5. Nunca use a palavra "danificado". Prefira avariado, amassado, quebrado, riscado, conforme o padrão industrial.
+REGRAS DE CONSTRUÇÃO MANDATÓRIAS:
+1. Monte o Título em letras maiúsculas baseado na natureza (Ex: VAZAMENTO DE FLUIDO EM MAQUINÁRIO INDUSTRIAL / CHILLER).
+2. Use linguagem formal, técnica e impessoal ("Registramos", "Verificamos").
+3. Mantenha fidelidade total a nomes, registros, matrículas, empresas e contatos informados.
+4. Caso haja imagens anexadas abaixo, utilize-as para realizar a extração ou conferência de dados.
+5. Substitua qualquer menção a "danificado" por termos precisos ("avariado", "quebrado", "amassado").
 
-ESTRUTURA COMPLETA EXIGIDA:
+ESTRUTURA FIXA OBRIGATÓRIA (SIGA EXATAMENTE ESTE MODELO DE EXIBIÇÃO):
+
 [TÍTULO DA OCORRÊNCIA EM MAIÚSCULAS]
 
 1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
-- Data do Fato: [Aplicar data correta]
-- Hora do Fato: [Aplicar horário correto]
-- Local Exato: [Indicar galpão/portaria/colunas citadas]
+- Data do Fato: {data_fato.strftime('%d/%m/%Y')}
+- Hora do Fato: {hora_fato}
+- Local Exato: [Inserir Local detalhado]
 
-2. QUALIFICAÇÃO DOS ENVOLVIDOS
-[Listar condutor, empresa fornecedora, transportadora, veículo, placas, MVM e contatos disponíveis]
+2. QUALIFICAÇÃO DOS ENVOLVIDOS / DADOS COMPLEMENTARES
+- Nome/Envolvido: [Nome Completo e Cargo/Função]
+- Registro / Matrícula: [Número de ID, RE ou Matrícula se houver]
+- Empresa / Setor: [Empresa ou Setor de lotação]
+- Filiação: [Se houver no texto, caso contrário indicar: "Não informada"]
+- Endereço: [Se houver no texto, caso contrário indicar: "Não informado"]
+- Telefone: [Número de contato]
 
 3. HISTÓRICO DOS FATOS
-[Narrativa cronológica limpa, contendo horários de acesso e a dinâmica técnica do defeito apresentado]
+[Narrar aqui o texto corrido de forma culta, cronológica e limpa, detalhando a constatação do vazamento e as vistorias de campo]
 
-4. PROVIDÊNCIAS ADOTADAS / DESFECHO
-[Autorizações de lideranças, remoções/reparos de peças e direcionamento final de pátio]
+4. ALEGAÇÃO DO ENVOLVIDO / RESTRIÇÕES OPERACIONAIS
+[Registrar explicitamente as alegações ou impedimentos técnicos constatados (ex: a restrição técnica da profissional de não poder adentrar ao maquinário restrito sem autorização do responsável pela área).]
+
+5. PROVIDÊNCIAS ADOTADAS / DESFECHO
+[Listar os acionamentos de lideranças de manutenção, orientações recebidas e direcionamentos para correção da área]
 ----------------------------------------------------------------------
 Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
+Relator: Vigilante Cleidir Alves
 """
                 
                 conteudo_envio = [prompt_final]
@@ -266,18 +268,18 @@ Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
                     st.session_state.documento_final = resposta.text
                     st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
                 else:
-                    st.error("❌ Resposta vazia da API. Por favor, clique novamente.")
+                    st.error("❌ Resposta em branco do servidor da API. Clique novamente.")
 
             except Exception as e:
                 if "429" in str(e):
-                    st.error("⚠️ Limite de tráfego temporário atingido. Aguarde 10 segundos e tente gerar novamente.")
+                    st.error("⚠️ Limite de tráfego temporário atingido. Aguarde 10 segundos e clique em gerar novamente.")
                 else:
                     st.error(f"❌ Erro operacional do motor: {str(e)}")
 
 # ─── Exibição do Resultado ────────────────────────────────────────────────────
 if st.session_state.documento_final:
     st.success("✅ Boletim estruturado com sucesso!")
-    st.text_area(label="", value=st.session_state.documento_final, height=520, key="visualizador_bo")
+    st.text_area(label="", value=st.session_state.documento_final, height=550, key="visualizador_bo")
 
     col_a, col_b = st.columns(2)
     with col_a:
