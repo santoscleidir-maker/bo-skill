@@ -74,16 +74,16 @@ relato_bruto = st.text_area(
     placeholder=(
         "Cole aqui o texto do WhatsApp ou anotações de campo.\n\n"
         "OBRIGATÓRIO conter:\n"
-        "• Nome, RE/Matrícula e telefone do(s) envolvido(s)\n"
-        "• Nome e RE do Líder/Supervisor/Gerente ciente\n"
-        "• O que o(s) envolvido(s) DISSE(ARAM) (alegação)\n"
+        "• Nome e dados do envolvido (RE se funcionário, ou Placa/MVM se motorista externo)\n"
+        "• Nome do Líder/Supervisor/Gerente ciente\n"
+        "• Histórico ou alegação do condutor\n"
         "• Como a situação foi RESOLVIDA (desfecho)"
     ),
     height=220
 )
 
 # ─── Upload de Evidências (Otimizado e Inteligente) ───────────────────────────
-st.markdown("### 📷 Evidências Visuais / Documentos (CNH, RG, MVM)")
+st.markdown("### 📷 Evidências Visuais / Documentos (CNH, RG, MVM) - Opcional")
 fotos_carregadas = st.file_uploader(
     "Anexe fotos ou documentos da ocorrência para extração de dados",
     type=["jpg", "jpeg", "png", "webp"],
@@ -98,7 +98,7 @@ if fotos_carregadas:
             foto.seek(0)
             img = Image.open(io.BytesIO(foto.read()))
             
-            # Redimensionamento inteligente para não estourar os limites da API gratuita
+            # Redimensionamento para não estourar limite por minuto da API gratuita
             img.thumbnail((800, 800)) 
             buffer = io.BytesIO()
             if img.mode in ("RGBA", "P"):
@@ -110,11 +110,11 @@ if fotos_carregadas:
         except Exception:
             pass
     if imagens_processadas:
-        st.success(f"✅ {len(imagens_processadas)} imagem(ns) pronta(s) para extração de dados (CNH/RG/MVM).")
+        st.success(f"✅ {len(imagens_processadas)} imagem(ns) carregada(s) com sucesso.")
 
 st.markdown("---")
 
-# ─── MOTOR DE PRÉ-AUDITORIA PYTHON (AGORA COM DEFENSA PARA IMAGENS) ───────────
+# ─── MOTOR DE PRÉ-AUDITORIA PYTHON (INTELIGENTE PARA LOGÍSTICA/AGREGADOS) ──────
 def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[dict]:
     pendencias = []
     t = texto.lower()
@@ -135,44 +135,38 @@ def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[di
             "mensagem": "Nenhuma referência de localização encontrada no campo nem no relato."
         })
 
-    # 2. Identificação (Se tiver foto de documento anexada, pulamos essa trava pois o Gemini extrairá da foto)
-    if not tem_fotos:
-        tem_re = bool(re.search(r'\b(re|reg\.?|registro|matrícula|matricula|cnh|cpf|rg|n[°º]|re\s*\d+)\s*[:\-]?\s*\d{3,}', t))
-        tem_nome_proprio = bool(re.search(r'\b(sr\.|sra\.|senhor|senhora|vigilante|motorista|líder|lider|tean|team|fiscal)\s+[a-záàâãéêíóôõúüç]', t)) or len(t) > 40
-        
-        if not tem_re:
-            pendencias.append({
-                "campo": "Identificação do Envolvido",
-                "mensagem": "Ausência de número de RE, Matrícula ou documento no texto (insira no texto ou anexe a foto do documento)."
-            })
-        if not tem_nome_proprio:
-            pendencias.append({
-                "campo": "Nome do Envolvido",
-                "mensagem": "Identifique os envolvidos pelo nome no relato de texto."
-            })
+    # 2. Identificação Inteligente (Aceita RE para funcionário OU Placa/MVM/Transportadora para Externos)
+    is_externo_logistica = any(p in t for p in ["placa", "mvm", "transportadora", "condutor", "motorista", "carreta", "truck", "agregado"])
+    tem_re = bool(re.search(r'\b(re|reg\.?|registro|matrícula|matricula|cnh|cpf|rg|n[°º]|re\s*\d+)\s*[:\-]?\s*\d{3,}', t))
+    
+    if not tem_re and not is_externo_logistica and not tem_fotos:
+        pendencias.append({
+            "campo": "Identificação do Envolvido",
+            "mensagem": "Ausência de RE ou identificação de veículo externo (Placa/MVM/Transportadora)."
+        })
 
     # 3. Contato
     tem_tel = bool(re.search(r'(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}|\btel\.?|\bfone|\bcelular|\bwhatsapp|\b319|\b31\s*9)', t))
     if not tem_tel:
         pendencias.append({
             "campo": "Telefone de Contato",
-            "mensagem": "Ausência de número de telefone ou celular de contato no relato."
+            "mensagem": "Ausência de número de telefone de contato no relato."
         })
 
-    # 4. Liderança
-    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico de segurança|tst|team leader|tean lider|coordenador|lopes|katleen|rafael)\b', t))
+    # 4. Liderança ou Solicitante Ciente
+    tem_lider = bool(re.search(r'\b(lider|líder|liderança|supervisor|supervisora|gerente|inspetor|inspetora|técnico de segurança|tst|team leader|tean lider|coordenador|lopes|katleen|rafael|robson)\b', t))
     if not tem_lider:
         pendencias.append({
             "campo": "Liderança Ciente",
-            "mensagem": "O BO exige identificação da liderança responsável ciente (Líder/Supervisor/Inspetor)."
+            "mensagem": "O BO exige a indicação da liderança ou solicitante responsável ciente do fato."
         })
 
-    # 5. Alegação e Histórico
-    tem_alegacao = bool(re.search(r'\b(disse que|alegou|declarou|informou que|relatou que|afirmou que|mencionou que|solicitado|chegada|encaminhados|solicitou)\b', t))
+    # 5. Histórico / Dinâmica
+    tem_alegacao = bool(re.search(r'\b(disse que|alegou|declarou|informou que|relatou que|afirmou que|mencionou que|solicitado|chegada|encaminhados|solicitou|apresentou)\b', t))
     if not tem_alegacao:
         pendencias.append({
-            "campo": "Alegação do Envolvido",
-            "mensagem": "O BO exige registrar a dinâmica ou a alegação dos envolvidos."
+            "campo": "Histórico dos Fatos",
+            "mensagem": "O relato precisa conter a descrição da dinâmica ou alegação do condutor."
         })
 
     # 6. Desfecho
@@ -180,32 +174,31 @@ def executar_auditoria_local(texto: str, local: str, tem_fotos: bool) -> list[di
         "encaminhado", "liberado", "recolhido", "orientado", "retirado",
         "acionado", "notificado", "saiu", "retornou", "foi para", "reparação",
         "cso", "alfândega", "galpão", "portaria", "gerado", "registrado",
-        "solicitado", "providenciado", "regularizado", "removido", "trancado", "pátio", "patio"
+        "solicitado", "providenciado", "regularizado", "removido", "trancado", "pátio", "patio", "saída"
     ]
     tem_desfecho = any(p in t for p in palavras_desfecho)
     if not tem_desfecho:
         pendencias.append({
             "campo": "Desfecho / Resolução",
-            "mensagem": "Informe como a ocorrência foi encerrada ou direcionada."
+            "mensagem": "Informe a resolução ou o direcionamento final dado ao veículo/fato."
         })
 
-    # 7. Termo Proibido
+    # 7. Bloqueio de termo proibido (Apenas se não for do próprio texto do usuário aprovado)
     if "danificado" in t or "danificada" in t:
         pendencias.append({
             "campo": "Terminologia Técnica",
-            "mensagem": "Uso do termo genérico 'danificado'. Substitua por termos descritivos (amassado, riscado, quebrado)."
+            "mensagem": "Uso do termo genérico 'danificado'. Substitua por termos específicos (amassado, riscado, quebrado)."
         })
 
     return pendencias
 
-# ─── Processamento Inteligente ────────────────────────────────────────────────
+# ─── Processamento do Boletim ─────────────────────────────────────────────────
 if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
 
     if not relato_bruto.strip():
         st.warning("⚠️ O campo de Relato Bruto não pode estar vazio.")
         st.stop()
 
-    # Passamos se existem imagens ou não para flexibilizar a pré-auditoria
     tem_fotos = len(imagens_processadas) > 0
     pendencias = executar_auditoria_local(relato_bruto, local_detalhado, tem_fotos)
     st.session_state.pendencias_cache = pendencias
@@ -215,58 +208,55 @@ if st.button("🛡️ Auditar e Gerar Boletim", type="primary"):
         for p in pendencias:
             st.markdown(f"<div class='pendencia-box'>❌ <strong>{p['campo']}</strong><br>{p['mensagem']}</div>", unsafe_allow_html=True)
     else:
-        with st.spinner("⚡ Analisando dados e formatando documento oficial..."):
+        with st.spinner("⚡ Processando e aplicando formatação Stellantis..."):
             try:
                 modelo = genai.GenerativeModel("gemini-2.0-flash")
 
-                # Montagem do Prompt Padrão de Legibilidade do BO
                 prompt_final = f"""Você é o Boletinista Técnico da Gestão de Segurança Patrimonial da Stellantis Betim.
-Sua função é estruturar as informações validadas em um Boletim de Ocorrência Interno formal.
+Sua função é estruturar as informações validadas em um Boletim de Ocorrência Interno formal, seguindo os padrões corporativos.
 
-DADOS LOGÍSTICOS ADICIONAIS:
+DADOS DA TELA:
 - Data: {data_fato.strftime('%d/%m/%Y')}
 - Hora: {hora_fato}
-- Local: {local_detalhado if local_detalhado.strip() else 'Declarado no histórico'}
+- Local: {local_detalhado if local_detalhado.strip() else 'Declarado no relato técnico'}
 
-RELATO DE ENTRADA (WHATSAPP):
+RELATO INTEGRAL ENVIADO:
 \"\"\"
 {relato_bruto}
 \"\"\"
 
-INSTRUÇÕES CRÍTICAS DE TEXTO E IMAGEM:
-1. Caso existam imagens anexadas abaixo, leia e extraia com precisão absoluta dados de documentos como: Nome Completo, RG, CPF, número de CNH, categoria, placa de veículo ou numeração de documento MVM. Use essas informações extraídas para completar a seção de QUALIFICAÇÃO DOS ENVOLVIDOS.
-2. Identifique a natureza técnica da ocorrência no título (Maiúsculas).
-3. Linguagem formal, técnica, na terceira pessoa do plural (Registramos / Notificamos).
-4. NUNCA utilize o termo "danificado". Substitua por termos diretos (amassado, riscado, quebrado, trincado).
+REGRAS DE CONSTRUÇÃO DO BO:
+1. Use o título padrão em caixa alta de acordo com a natureza exata técnica encontrada.
+2. Escreva em linguagem culta, impessoal (terceira pessoa do plural: Registramos, Verificamos).
+3. Mantenha fielmente todas as informações: nomes de motoristas agregados, placas de cavalos mecânicos/carretas, MVMs, fornecedores, transportadoras e telefones de contato.
+4. Caso imagens estejam anexadas abaixo, faça a varredura visual inteligente para complementar dados de CNH/RG/MVM ou ratificar avarias relatadas.
+5. Nunca use a palavra "danificado". Prefira avariado, amassado, quebrado, riscado, conforme o padrão industrial.
 
-ESTRUTURA OBRIGATÓRIA DE SAÍDA:
+ESTRUTURA COMPLETA EXIGIDA:
 [TÍTULO DA OCORRÊNCIA EM MAIÚSCULAS]
+
 1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
-- Data do Fato: {data_fato.strftime('%d/%m/%Y')}
-- Hora do Fato: {hora_fato}
-- Local Exato: {local_detalhado if local_detalhado.strip() else 'Declarado no corpo do texto'}
+- Data do Fato: [Aplicar data correta]
+- Hora do Fato: [Aplicar horário correto]
+- Local Exato: [Indicar galpão/portaria/colunas citadas]
 
 2. QUALIFICAÇÃO DOS ENVOLVIDOS
-[Listar nomes, registros, RE, documentos extraídos das imagens e contatos]
+[Listar condutor, empresa fornecedora, transportadora, veículo, placas, MVM e contatos disponíveis]
 
 3. HISTÓRICO DOS FATOS
-[Narrativa culta, limpa, formal e cronológica baseada no relato escrito]
+[Narrativa cronológica limpa, contendo horários de acesso e a dinâmica técnica do defeito apresentado]
 
-4. PROVIDÊNCIAS ADOTADAS
-[Encaminhamentos, orientações, reparos ou comunicações à liderança realizadas]
+4. PROVIDÊNCIAS ADOTADAS / DESFECHO
+[Autorizações de lideranças, remoções/reparos de peças e direcionamento final de pátio]
 ----------------------------------------------------------------------
 Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
 """
                 
-                # Montamos a lista de conteúdo de envio de forma segura
                 conteudo_envio = [prompt_final]
-                
-                # SE TIVER FOTO: Adiciona no pacote de envio para o Gemini analisar
                 if tem_fotos:
-                    conteudo_envio.append("\n[EVIDÊNCIAS ANEXADAS PARA EXTRAÇÃO DE DADOS COORDENADOS]:")
+                    conteudo_envio.append("\n[EVIDÊNCIAS ANEXADAS PARA ANÁLISE]:")
                     conteudo_envio.extend(imagens_processadas)
 
-                # Execução da chamada unificada
                 resposta = modelo.generate_content(
                     conteudo_envio,
                     generation_config={"max_output_tokens": 1200, "temperature": 0.1}
@@ -276,17 +266,17 @@ Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
                     st.session_state.documento_final = resposta.text
                     st.session_state.nome_arquivo = f"BO_{data_fato.strftime('%Y%m%d')}_{hora_fato.replace(':', '')}.txt"
                 else:
-                    st.error("❌ O servidor retornou uma resposta em branco. Tente novamente.")
+                    st.error("❌ Resposta vazia da API. Por favor, clique novamente.")
 
             except Exception as e:
                 if "429" in str(e):
-                    st.error("⚠️ Limite de tráfego temporário atingido devido ao volume de dados. Aguarde 15 segundos e clique novamente.")
+                    st.error("⚠️ Limite de tráfego temporário atingido. Aguarde 10 segundos e tente gerar novamente.")
                 else:
-                    st.error(f"❌ Falha no processador do sistema: {str(e)}")
+                    st.error(f"❌ Erro operacional do motor: {str(e)}")
 
 # ─── Exibição do Resultado ────────────────────────────────────────────────────
 if st.session_state.documento_final:
-    st.success("✅ Boletim gerado com sucesso!")
+    st.success("✅ Boletim estruturado com sucesso!")
     st.text_area(label="", value=st.session_state.documento_final, height=520, key="visualizador_bo")
 
     col_a, col_b = st.columns(2)
