@@ -63,9 +63,11 @@ MODELOS = {
     "ext":[("danfe",r'danfe[\s:\-]*\w+',"DANFE"),("desenho",r'desenho[\s:\-]*\w+',"Desenho")]},
   "carga_tombada":  {"nome":"CARGA TOMBADA / PEÇAS DANIFICADAS",
     "kw":["carga tombada","tombado","tombaram","peças danificadas","avaria"],"t3":True,"placa":True,
-    "ext":[("mvm",r'mvm[\s:\-]*[\d\.]{5,}',"MVM"),("danfe",r'danfe[\s:\-]*\w+',"DANFE"),
-           ("qtd",r'\d+\s*(peças|paletes|caixas)',"Qtd peças"),
-           ("forn",r'fornecedor\s+\w+',"Fornecedor")]},
+    "ext":[("mvm",   r'mvm[\s:\-]*[\d\.]{5,}',          "MVM"),
+           ("danfe", r'danfe[\s:\-]*\w+',                 "DANFE"),
+           ("qtd",   r'\d+\s*(peças|paletes|caixas|unidades)', "Quantidade de peças afetadas"),
+           ("desenho",r'desenho\s*[\:\-]?\s*[\w\-]+',  "Número do desenho das peças (ex: desenho XXXXXX)"),
+           ("forn",  r'fornecedor\s+\w+',                  "Nome do fornecedor")]},
   "pecas_molhadas": {"nome":"PEÇAS MOLHADAS",
     "kw":["peças molhadas","molhado","umidade nas peças"],"t3":True,"placa":True,
     "ext":[("mvm",r'mvm[\s:\-]*[\d\.]{5,}',"MVM"),("danfe",r'danfe[\s:\-]*\w+',"DANFE")]},
@@ -171,15 +173,20 @@ def identificar_modelo(texto):
 #  FUNÇÃO 2: Detectar se texto já é um BO estruturado
 # ══════════════════════════════════════════════════════════════════
 def ja_formatado(texto):
-    t = texto.lower()
-    score = sum(1 for p in [
-        r"relatório de ocorrência", r"boletim de ocorrência",
-        r"histórico.{0,20}(fatos|constatação)", r"dados logísticos",
-        r"providências adotadas", r"\d+\.\s*(histórico|dados|qualificação|providências|diagnóstico)",
-        r"horário de (início|término)", r"data do registro", r"setor/local:",
-        r"qualificação dos envolvidos", r"emissão:\s*\d{2}/\d{2}/\d{4}",
-    ] if re.search(p, t))
-    return score >= 3
+    """True somente se o texto já está no padrão Stellantis de parágrafos corridos.
+    Textos com seções numeradas (1. Histórico, 2. Pessoal…) e cabeçalhos tipo
+    'Data do Registro:' devem ser reformatados → retorna False."""
+    t = texto.strip().lower()
+    # Padrão Stellantis autêntico: abre com registramos/notificamos
+    primeiras = [l.strip() for l in t.splitlines()[:6] if l.strip()]
+    abertura_ok = any(
+        l.startswith("registramos") or l.startswith("notificamos") for l in primeiras[:5]
+    )
+    # Seções numeradas → formato antigo → precisa reformatar
+    tem_secoes = bool(re.search(r"^\s*\d+\.\s+(histórico|dados|qualificação|pessoal|diagnóstico|alinhamento|providências|desfecho)", t, re.M))
+    # Cabeçalho de relatório formal → precisa reformatar
+    tem_cabecalho = bool(re.search(r"^(data do registro|setor/local|horário de início|relator)\s*:", t, re.M))
+    return abertura_ok and not tem_secoes and not tem_cabecalho
 
 # ══════════════════════════════════════════════════════════════════
 #  FUNÇÃO 3: Extrai entidades do texto (nomes, REs, placas etc.)
@@ -244,54 +251,76 @@ def auditar(texto, local):
     if len(texto.split()) < 20:
         p.append(("Extensão", f"Relato muito curto ({len(texto.split())} palavras). Mínimo: 20 palavras."))
 
+    # Campos extras do modelo identificado
+    mid, modelo = identificar_modelo(texto)
+    if modelo:
+        if modelo["placa"] and not re.search(r'\b[a-z]{3}[\s\-]?\d{4}\b|\b[a-z]{3}\d[a-z]\d{2}\b', t):
+            p.append((f"[{modelo['nome']}] Placa", "Este modelo exige placa do(s) veículo(s) envolvido(s)."))
+        for _id, regex, msg in modelo.get("ext", []):
+            if not re.search(regex, t):
+                p.append((f"[{modelo['nome']}] {msg.split('(')[0].strip()}", msg))
+        if modelo["t3"]:
+            for campo, rx, mens in [
+                ("CNH/Habilitação", r"\bcnh\b|habilitad", "CNH ou confirmação de habilitação do motorista"),
+                ("MVM",            r"mvm[\s:\-]*[\d\.]{5,}", "Número do MVM"),
+                ("Empresa",        r"(transportadora|empresa)\s+\w+", "Nome da empresa/transportadora"),
+                ("Telefone",       r"\+?(?:55\s*)?\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4}", "Telefone do motorista"),
+                ("Endereço",       r"(rua|av\.|avenida|travessa|estrada)\s+\w+", "Endereço do motorista"),
+                ("Filiação",       r"(filiação|filho\s+de|pai\s*:|mãe\s*:)", "Filiação do motorista (pai/mãe)"),
+            ]:
+                if not re.search(rx, t):
+                    p.append((f"[Terceiro] {campo}", mens))
+
     return [{"campo": c, "mensagem": m} for c, m in p]
 
 # ══════════════════════════════════════════════════════════════════
 #  FUNÇÃO 5: Monta BO em Python puro — fallback sem API
 # ══════════════════════════════════════════════════════════════════
 def montar_bo_python(texto, modelo_id, modelo, data, hora, local):
+    """
+    Monta o BO no padrão Stellantis: parágrafos corridos, sem seções numeradas.
+    Abre com "Registramos..." e encadeia as informações cronologicamente.
+    """
     ent = extrair(texto)
     nome = modelo["nome"] if modelo else "OCORRÊNCIA OPERACIONAL"
-    local_final = local.strip() or (ent["locais"][0].title() if ent["locais"] else "Declarado no histórico")
+    local_final = local.strip() or (ent["locais"][0].title() if ent["locais"] else "local declarado no histórico")
 
-    env_linhas = []
-    for n in ent["nomes"]:    env_linhas.append(f"  - {n}")
-    for r in ent["regs"]:     env_linhas.append(f"  - RE/Matrícula/IDSAP: {r}")
-    for t in ent["tels"]:     env_linhas.append(f"  - Tel: {t}")
-    for e in ent["empresas"]: env_linhas.append(f"  - Empresa: {e}")
-    for p in ent["placas"]:   env_linhas.append(f"  - Placa: {p}")
-    for m in ent["mvms"]:     env_linhas.append(f"  - MVM: {m}")
-    envolvidos = "\n".join(env_linhas) if env_linhas else "  - Dados conforme relato abaixo"
+    # Monta linha de envolvidos inline (formato Stellantis)
+    partes_env = []
+    for i, n in enumerate(ent["nomes"]):
+        parte = n
+        if i < len(ent["regs"]):  parte += f", reg. {ent['regs'][i]}"
+        if i < len(ent["tels"]):  parte += f", tel. {ent['tels'][i]}"
+        partes_env.append(parte)
+    envolvidos_inline = " | ".join(partes_env) if partes_env else ""
 
-    # Texto do histórico: limpa espaços extras
-    historico = re.sub(r'\n{3,}', '\n\n', texto.strip())
+    extras = []
+    if ent["placas"]:   extras.append("Placa(s): " + ", ".join(ent["placas"]))
+    if ent["mvms"]:     extras.append("MVM: " + ", ".join(ent["mvms"]))
+    if ent["empresas"]: extras.append("Empresa/Transportadora: " + " | ".join(ent["empresas"]))
+    extras_txt = " — ".join(extras) + "." if extras else ""
 
+    historico = re.sub(r'\n{3,}', '\n', texto.strip())
     ts = datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')
-    bo = f"""{nome}
-{'─'*70}
 
-1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
-   Data do Fato : {data}
-   Hora do Fato : {hora}
-   Local Exato  : {local_final}
-   Natureza     : {nome}
+    linhas = [nome, ""]
+    linhas.append(f"Registramos a ocorrência de {nome.lower()} verificada no {local_final}, no dia {data}, às {hora}.")
+    linhas.append("")
+    linhas.append(historico)
+    linhas.append("")
+    if envolvidos_inline:
+        linhas.append(f"Compareceram ao local: {envolvidos_inline}.")
+    if extras_txt:
+        linhas.append(extras_txt)
+    linhas.append("")
+    linhas.append("Anexo: Fotos.")
+    linhas.append("")
+    linhas.append("─" * 70)
+    linhas.append(f"Emissão: {ts}")
+    linhas.append("Relator: Vigilante Cleidir Alves dos Santos")
+    linhas.append("⚠️  Modo Python local — revise antes do envio oficial.")
 
-2. QUALIFICAÇÃO DOS ENVOLVIDOS / SOLICITANTES / LIDERANÇAS
-{envolvidos}
-
-3. HISTÓRICO DOS FATOS / NARRATIVA CRONOLÓGICA
-{historico}
-
-4. PROVIDÊNCIAS ADOTADAS / DESFECHO
-   [Conforme narrado no histórico acima]
-
-{'─'*70}
-Emissão : {ts}
-Relator : Vigilante Cleidir Alves dos Santos
-⚠️  Gerado em modo Python local (API indisponível).
-    Revise e complemente antes do envio oficial ao sistema.
-"""
-    return bo
+    return "\n".join(linhas)
 
 # ══════════════════════════════════════════════════════════════════
 #  INTERFACE
@@ -421,18 +450,28 @@ RELATO APROVADO:
 {relato}
 \"\"\"
 
-REGRAS: Título MAIÚSCULAS. "Registramos…" (3ª pessoa plural). Nunca "danificado".
-Preservar exatamente: nomes, REs, placas, MVMs, CNH, telefones, DANFE, ABRBE.
-Alegações: "O Sr. X disse que…". Texto com início, meio e desfecho.
+REGRAS ABSOLUTAS DE FORMATO:
+1. Título MAIÚSCULAS — baseado na natureza real da ocorrência.
+2. ZERO seções numeradas. ZERO headers como "1. Histórico", "2. Pessoal".
+3. Texto em parágrafos corridos, modelo Stellantis: abre com "Registramos que…"
+4. Nunca use "danificado". Use: amassado, riscado, quebrado, empenado, trincado.
+5. Preserve EXATAMENTE: nomes, REs, matrículas, placas, MVMs, CNH, DANFE, ABRBE, telefones.
+6. Alegação obrigatória: "O Sr./Sra. X disse que…"
+7. Desfecho no último parágrafo: encaminhamento, resolução ou situação atual.
+8. Dados de contato ficam inline no parágrafo onde o envolvido é citado.
 
-ESTRUTURA:
+ESTRUTURA (parágrafos corridos, sem numeração):
+
 [TÍTULO EM MAIÚSCULAS]
-1. DADOS LOGÍSTICOS E CLASSIFICAÇÃO
-2. QUALIFICAÇÃO DOS ENVOLVIDOS / SOLICITANTES / LIDERANÇAS
-3. HISTÓRICO DOS FATOS
-4. ALEGAÇÃO DOS ENVOLVIDOS / RESTRIÇÕES OPERACIONAIS
-5. PROVIDÊNCIAS ADOTADAS / DESFECHO
-{"Dados Complementares do Condutor: Filiação / Endereço / Tel / CNH" if modelo and modelo['t3'] else ""}
+
+[§1 — Abertura: "Registramos que…" + local + natureza + quem constatou]
+[§2 — Narrativa cronológica dos fatos]
+[§3 — Alegações dos envolvidos: "O Sr. X disse que…"]
+[§4 — Providências adotadas e desfecho]
+{"[§5 — Dados complementares do condutor: filiação, endereço, CNH, empresa, tel]" if modelo and modelo["t3"] else ""}
+
+Anexo: Fotos.
+
 ----------------------------------------------------------------------
 Emissão: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}
 Relator: Vigilante Cleidir Alves dos Santos"""
